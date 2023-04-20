@@ -46,8 +46,8 @@ impl<E: PairingEngine> Accumulator<E> {
                 |((((tau_g1, tau_g2), alpha_tau_g1), beta_tau_g1), tau_power)| {
                     *tau_g1 = tau_g1.mul(tau_power).into();
                     *tau_g2 = tau_g2.mul(tau_power).into();
-                    *alpha_tau_g1 = alpha_tau_g1.mul(alpha).into();
-                    *beta_tau_g1 = beta_tau_g1.mul(beta).into();
+                    *alpha_tau_g1 = alpha_tau_g1.mul(tau_power * alpha).into();
+                    *beta_tau_g1 = beta_tau_g1.mul(tau_power * beta).into();
                 },
             );
         cfg_iter_mut!(instance.tau_powers_g1)
