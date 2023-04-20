@@ -27,7 +27,7 @@ pub struct Transcript<E: PairingEngine> {
 
 impl<E: PairingEngine> Transcript<E> {
     pub fn new_from_accumulator<C: ConstraintSynthesizer<E::Fr>>(
-        accum: Accumulator<E>,
+        accum: &Accumulator<E>,
         circuit: C,
     ) -> Result<Self, Error> {
         let cs = ConstraintSystem::new_ref();
@@ -225,10 +225,10 @@ impl<E: PairingEngine> Transcript<E> {
     #[inline]
     pub fn verify_from_accumulator<C: ConstraintSynthesizer<E::Fr>>(
         &self,
-        accum: Accumulator<E>,
+        accum: &Accumulator<E>,
         circuit: C,
     ) -> Result<(), Error> {
-        let initial_transcript = Transcript::new_from_accumulator(accum, circuit)?;
+        let initial_transcript = Transcript::new_from_accumulator(&accum, circuit)?;
         (initial_transcript.initial_key == self.initial_key)
             .then_some(())
             .ok_or(Error::InvalidPartialKey)?;
