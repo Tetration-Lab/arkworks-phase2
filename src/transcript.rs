@@ -221,4 +221,44 @@ impl<E: PairingEngine> Transcript<E> {
 
         Ok(())
     }
+
+    #[inline]
+    pub fn verify_from_accumulator<C: ConstraintSynthesizer<E::Fr>>(
+        &self,
+        accum: Accumulator<E>,
+        circuit: C,
+    ) -> Result<(), Error> {
+        let initial_transcript = Transcript::new_from_accumulator(accum, circuit)?;
+        (initial_transcript.initial_key == self.initial_key)
+            .then_some(())
+            .ok_or(Error::InvalidPartialKey)?;
+        (initial_transcript.key.key.beta_g1 == self.key.key.beta_g1)
+            .then_some(())
+            .ok_or(Error::InvalidKey("pk: beta_g1"))?;
+        (initial_transcript.key.key.a_query == self.key.key.a_query)
+            .then_some(())
+            .ok_or(Error::InvalidKey("pk: a_query"))?;
+        (initial_transcript.key.key.b_g1_query == self.key.key.b_g1_query)
+            .then_some(())
+            .ok_or(Error::InvalidKey("pk: b_g1"))?;
+        (initial_transcript.key.key.b_g2_query == self.key.key.b_g2_query)
+            .then_some(())
+            .ok_or(Error::InvalidKey("pk: b_g2"))?;
+        (initial_transcript.key.key.vk.alpha_g1 == self.key.key.vk.alpha_g1)
+            .then_some(())
+            .ok_or(Error::InvalidKey("vk: alpha_g1"))?;
+        (initial_transcript.key.key.vk.beta_g2 == self.key.key.vk.beta_g2)
+            .then_some(())
+            .ok_or(Error::InvalidKey("vk: beta_g2"))?;
+        (initial_transcript.key.key.vk.gamma_g2 == self.key.key.vk.gamma_g2)
+            .then_some(())
+            .ok_or(Error::InvalidKey("vk: gamma_g2"))?;
+        (initial_transcript.key.key.vk.gamma_abc_g1 == self.key.key.vk.gamma_abc_g1)
+            .then_some(())
+            .ok_or(Error::InvalidKey("vk: gamma_abc_g1"))?;
+
+        self.verify()?;
+
+        Ok(())
+    }
 }

@@ -28,8 +28,14 @@ pub enum Error {
     #[error("Inconsistent H Change")]
     InconsistentHChange,
 
-    #[error("Invariant Violation")]
+    #[error("Invariant Violation {0}")]
     InvariantViolated(&'static str),
+
+    #[error("Invalid key element {0}")]
+    InvalidKey(&'static str),
+
+    #[error("Invalid initial partial key")]
+    InvalidPartialKey,
 
     #[error("{0}")]
     Custom(String),
