@@ -13,19 +13,23 @@ mod tests {
 
     use ark_bn254::{Bn254, Fr};
     use ark_ff::Zero;
+    use ark_groth16::Groth16;
     use ark_r1cs_std::{
         fields::fp::FpVar,
         prelude::{AllocVar, EqGadget},
     };
     use ark_relations::r1cs::ConstraintSynthesizer;
+    use ark_snark::SNARK;
+    use rand::rngs::OsRng;
 
-    use crate::{pot::Accumulator, transcript::Transcript, utils::seeded_rng};
+    use crate::{pot::Accumulator, transcript::Transcript};
 
-    const NUM_CONSTRAINTS: usize = 10;
+    const NUM_CONSTRAINTS: usize = 50;
 
     struct DummyCircuit {
         pub a: Fr,
         pub b: Fr,
+        pub c: Fr,
     }
 
     impl ConstraintSynthesizer<Fr> for DummyCircuit {
@@ -34,10 +38,12 @@ mod tests {
             cs: ark_relations::r1cs::ConstraintSystemRef<Fr>,
         ) -> ark_relations::r1cs::Result<()> {
             let a = FpVar::new_witness(cs.clone(), || Ok(self.a))?;
-            let b = FpVar::new_input(cs, || Ok(self.b))?;
+            let b = FpVar::new_witness(cs.clone(), || Ok(self.b))?;
+            let c = FpVar::new_input(cs.clone(), || Ok(self.c))?;
+            let d = &a + &b;
 
-            for _ in 0..NUM_CONSTRAINTS {
-                a.enforce_equal(&b)?;
+            for _ in 0..(NUM_CONSTRAINTS - 5) {
+                c.enforce_equal(&d)?;
             }
 
             Ok(())
@@ -46,16 +52,16 @@ mod tests {
 
     #[test]
     fn groth16_domain() -> Result<(), Box<dyn Error>> {
-        let accum = Accumulator::<Bn254>::generate(
-            NUM_CONSTRAINTS.pow(2) + 1,
-            1,
-            &mut seeded_rng(b"hehehe"),
-        );
+        let rng = &mut OsRng;
+        let mut accum = Accumulator::<Bn254>::empty_from_max_constraints(NUM_CONSTRAINTS)?;
+        accum.contribute(rng);
+
         let mut transcript = Transcript::new_from_accumulator(
-            accum,
+            &accum,
             DummyCircuit {
                 a: Fr::zero(),
                 b: Fr::zero(),
+                c: Fr::zero(),
             },
         )?;
 
@@ -65,15 +71,18 @@ mod tests {
         transcript.contribute_seed(b"aewrog")?;
         transcript.verify()?;
 
-        transcript.contribute_seed(b"aewrog")?;
-        transcript.contribute_seed(b"agwi")?;
-        transcript.contribute_seed(b"23op2j43gk3")?;
-        transcript.contribute_seed(b"zdsf9vaobjk")?;
-        transcript.contribute_seed(b"k12999")?;
-        transcript.contribute_seed(b"193u9hxcv")?;
-        transcript.contribute_seed(b"1200xcvl")?;
-        transcript.contribute_seed(b"z0cvixkkk")?;
-        transcript.verify()?;
+        let pk = transcript.key.key;
+        let proof = Groth16::prove(
+            &pk,
+            DummyCircuit {
+                a: Fr::from(1),
+                b: Fr::from(2),
+                c: Fr::from(3),
+            },
+            rng,
+        )?;
+        let valid = Groth16::verify(&pk.vk, &[Fr::from(3)], &proof)?;
+        assert!(valid, "Proof must be valid");
 
         Ok(())
     }
