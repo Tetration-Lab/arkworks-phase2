@@ -1,7 +1,12 @@
-use ark_ec::PairingEngine;
-
-#[cfg(test)]
+use ark_ec::{AffineCurve, PairingEngine};
+use ark_ff::{One, UniformRand};
+use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
+use ark_relations::r1cs::SynthesisError;
+use ark_std::cfg_iter_mut;
 use rand::Rng;
+use std::iter;
+
+use crate::error::Error;
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub struct Accumulator<E: PairingEngine> {
@@ -13,27 +18,20 @@ pub struct Accumulator<E: PairingEngine> {
 }
 
 impl<E: PairingEngine> Accumulator<E> {
-    #[cfg(test)]
-    pub(crate) fn empty(g1_powers: usize, g2_powers: usize) -> Self {
-        use ark_ec::AffineCurve;
+    pub fn check_pow_len(&self) -> (bool, usize, usize) {
+        let g1_len = self.tau_powers_g1.len();
+        let g2_len = self.tau_powers_g2.len();
 
-        Self {
-            tau_powers_g1: vec![E::G1Affine::prime_subgroup_generator(); g1_powers],
-            tau_powers_g2: vec![E::G2Affine::prime_subgroup_generator(); g2_powers],
-            alpha_tau_powers_g1: vec![E::G1Affine::prime_subgroup_generator(); g2_powers],
-            beta_tau_powers_g1: vec![E::G1Affine::prime_subgroup_generator(); g2_powers],
-            beta_g2: E::G2Affine::prime_subgroup_generator(),
-        }
+        (
+            (g1_len << 1) >= g2_len
+                && g2_len == self.alpha_tau_powers_g1.len()
+                && g2_len == self.beta_tau_powers_g1.len(),
+            g1_len,
+            g2_len,
+        )
     }
 
-    #[cfg(test)]
-    pub(crate) fn contribute<R: Rng>(&mut self, rng: &mut R) {
-        use std::iter;
-
-        use ark_ec::AffineCurve;
-        use ark_ff::{One, UniformRand};
-        use ark_std::cfg_iter_mut;
-
+    pub fn contribute<R: Rng>(&mut self, rng: &mut R) {
         let tau = E::Fr::rand(rng);
         let alpha = E::Fr::rand(rng);
         let beta = E::Fr::rand(rng);
@@ -63,8 +61,28 @@ impl<E: PairingEngine> Accumulator<E> {
             .skip(g2_powers)
             .zip(remaining_tau_powers)
             .for_each(|(tau_g1, tau_power)| *tau_g1 = tau_g1.mul(tau_power).into());
-
         self.beta_g2 = self.beta_g2.mul(beta).into();
+    }
+
+    pub fn empty(g1_powers: usize, g2_powers: usize) -> Self {
+        Self {
+            tau_powers_g1: vec![E::G1Affine::prime_subgroup_generator(); g1_powers],
+            tau_powers_g2: vec![E::G2Affine::prime_subgroup_generator(); g2_powers],
+            alpha_tau_powers_g1: vec![E::G1Affine::prime_subgroup_generator(); g2_powers],
+            beta_tau_powers_g1: vec![E::G1Affine::prime_subgroup_generator(); g2_powers],
+            beta_g2: E::G2Affine::prime_subgroup_generator(),
+        }
+    }
+
+    pub fn empty_from_max_constraints(max_constraints: usize) -> Result<Self, Error> {
+        let domain = Radix2EvaluationDomain::<E::Fr>::new(max_constraints)
+            .ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
+        let degree = domain.size();
+        let g2_powers = match (max_constraints << 1) - 1 >= (degree << 1) {
+            true => max_constraints,
+            false => degree + 1,
+        };
+        Ok(Self::empty((g2_powers << 1) - 1, g2_powers))
     }
 }
 
