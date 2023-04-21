@@ -14,7 +14,7 @@ ark-r1cs-std = { version = "^0.3.0", default-features = false }
 ark-std = { version = "^0.3.0", default-features = false }
 ark-relations = { version = "^0.3.0", default-features = false }
 ark-groth16 = { version = "^0.3.0", default-features = false }
-ark-serialize = { version = "^0.3.0", default-features = false }
+ark-serialize = { version = "^0.3.0", default-features = false, features = ["derive"] }
 
 rand = "0.8.5"
 thiserror = "1.0.40"
@@ -24,8 +24,19 @@ blake3 = "0.1.3"
 [dev-dependencies]
 ark-std = { version = "^0.3.0", default-features = false, features = ["print-trace"] }
 ark-bn254 = { version = "^0.3.0", default-features = false, features = ["curve"] }
+ark-snark = { version = "^0.3.0", default-features = false }
+ark-groth16 = { version = "^0.3.0", default-features = false, features = ["parallel"] }
 
 [features]
 default = []
+#std = [
+  #"ark-ff/std",
+  #"ark-ec/std",
+  #"ark-poly/std",
+  #"ark-r1cs-std/std",
+  #"ark-std/std",
+  #"ark-relations/std",
+  #"ark-groth16/std",
+  #"ark-serialize/std",
+#]
 #parallel = ["ark-ff/parallel", "ark-ec/parallel", "ark-std/parallel"]
-
