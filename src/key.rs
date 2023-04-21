@@ -67,6 +67,17 @@ impl<E: PairingEngine> From<&'_ FullKey<E>> for PartialKey<E> {
     }
 }
 
+impl<E: PairingEngine> From<&'_ ProvingKey<E>> for PartialKey<E> {
+    fn from(val: &'_ ProvingKey<E>) -> Self {
+        PartialKey {
+            delta_g1: val.delta_g1,
+            delta_g2: val.vk.delta_g2,
+            h_query: val.h_query.clone(),
+            l_query: val.l_query.clone(),
+        }
+    }
+}
+
 impl<E: PairingEngine> PartialKey<E> {
     pub fn challenge(&self) -> Result<Vec<u8>, Error> {
         Ok(serialize(&self.delta_g1)?

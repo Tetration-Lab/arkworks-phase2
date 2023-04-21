@@ -2,7 +2,7 @@ use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
 use ark_ff::{Field, PrimeField, UniformRand, Zero};
 use ark_groth16::{ProvingKey, VerifyingKey};
 use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
-use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem};
+use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem, SynthesisError};
 use ark_std::{cfg_into_iter, cfg_iter};
 use rand::Rng;
 
@@ -36,11 +36,18 @@ impl<E: PairingEngine> Transcript<E> {
 
         let num_constraints = cs.num_constraints();
         let num_instance_variables = cs.num_instance_variables();
+        let total_constraints = num_constraints + num_instance_variables;
         let constraint_matrices = cs.to_matrices().ok_or(Error::MissingCSMatrices)?;
 
-        let domain = Radix2EvaluationDomain::new(num_constraints + num_instance_variables)
-            .ok_or(Error::TooManyConstraints)?;
-        let degree = domain.size as usize;
+        let domain = Radix2EvaluationDomain::new(total_constraints)
+            .ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
+        let degree = domain.size();
+
+        let (valid, g1_len, g2_len) = accum.check_pow_len();
+        valid.then_some(()).ok_or(Error::InvalidPPOTPowers)?;
+        (g2_len >= total_constraints && g1_len >= (degree << 1))
+            .then_some(())
+            .ok_or(Error::NotEnoughTauPowers(degree + 1))?;
 
         let mut h_query = vec![E::G1Affine::zero(); degree];
         cfg_into_iter!(0..degree).for_each(|i| {
@@ -49,7 +56,6 @@ impl<E: PairingEngine> Transcript<E> {
             h_query[i] = (tmp - tmp2).into_affine();
         });
 
-        let beta_g1 = accum.beta_tau_powers_g1[0];
         let tau_lagrange_g1 = domain.ifft(&batch_into_projective(&accum.tau_powers_g1));
         let tau_lagrange_g2 = domain.ifft(&batch_into_projective(&accum.tau_powers_g2));
         let alpha_lagrange_g1 = domain.ifft(&batch_into_projective(&accum.alpha_tau_powers_g1));
@@ -61,9 +67,10 @@ impl<E: PairingEngine> Transcript<E> {
         let mut b_g2 = vec![E::G2Projective::zero(); num_witnesses];
         let mut ext = vec![E::G1Projective::zero(); num_witnesses];
 
-        let total = num_instance_variables + num_constraints;
-        a_g1[0..num_instance_variables].clone_from_slice(&tau_lagrange_g1[num_constraints..total]);
-        ext[0..num_instance_variables].clone_from_slice(&beta_lagrange_g1[num_constraints..total]);
+        a_g1[0..num_instance_variables]
+            .clone_from_slice(&tau_lagrange_g1[num_constraints..total_constraints]);
+        ext[0..num_instance_variables]
+            .clone_from_slice(&beta_lagrange_g1[num_constraints..total_constraints]);
 
         assert_eq!(a_g1.len(), b_g1.len());
         assert_eq!(a_g1.len(), b_g2.len());
@@ -97,9 +104,11 @@ impl<E: PairingEngine> Transcript<E> {
         let b_g1_query = ProjectiveCurve::batch_normalization_into_affine(&b_g1);
         let b_g2_query = ProjectiveCurve::batch_normalization_into_affine(&b_g2);
         let ext = ProjectiveCurve::batch_normalization_into_affine(&ext);
+
         let public_cross_terms = Vec::from(&ext[..constraint_matrices.num_instance_variables]);
         let private_cross_terms = Vec::from(&ext[constraint_matrices.num_instance_variables..]);
-        let key: FullKey<E> = ProvingKey::<E> {
+
+        let key = ProvingKey::<E> {
             vk: VerifyingKey {
                 alpha_g1: accum.alpha_tau_powers_g1[0],
                 beta_g2: accum.beta_g2,
@@ -107,19 +116,18 @@ impl<E: PairingEngine> Transcript<E> {
                 delta_g2: E::G2Affine::prime_subgroup_generator(),
                 gamma_abc_g1: public_cross_terms,
             },
-            beta_g1,
+            beta_g1: accum.beta_tau_powers_g1[0],
             delta_g1: E::G1Affine::prime_subgroup_generator(),
             a_query,
             b_g1_query,
             b_g2_query,
             h_query,
             l_query: private_cross_terms,
-        }
-        .into();
+        };
 
         Ok(Self {
             initial_key: (&key).into(),
-            key,
+            key: FullKey { key },
             contributions: vec![],
         })
     }

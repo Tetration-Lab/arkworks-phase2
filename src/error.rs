@@ -4,9 +4,6 @@ use thiserror::Error;
 
 #[derive(Error, Clone, Debug, Eq, PartialEq)]
 pub enum Error {
-    #[error("Too Many Constraints")]
-    TooManyConstraints,
-
     #[error("Constraint System: {0}")]
     ConstraintSystem(#[from] SynthesisError),
 
@@ -36,6 +33,12 @@ pub enum Error {
 
     #[error("Invalid initial partial key")]
     InvalidPartialKey,
+
+    #[error("Too Enough Tau Powers G2, Needed Atleast {0}")]
+    NotEnoughTauPowers(usize),
+
+    #[error("Invalid Perpetual Power of Tau Powers")]
+    InvalidPPOTPowers,
 
     #[error("{0}")]
     Custom(String),
