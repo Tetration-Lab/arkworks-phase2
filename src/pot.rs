@@ -8,6 +8,9 @@ use std::iter;
 
 use crate::error::Error;
 
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub struct Accumulator<E: PairingEngine> {
     pub tau_powers_g1: Vec<E::G1Affine>,

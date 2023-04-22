@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
 use ark_ff::{Field, PrimeField, UniformRand, Zero};
 use ark_groth16::{ProvingKey, VerifyingKey};
@@ -17,6 +19,9 @@ use crate::{
         seeded_rng,
     },
 };
+
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Transcript<E: PairingEngine> {
@@ -49,12 +54,13 @@ impl<E: PairingEngine> Transcript<E> {
             .then_some(())
             .ok_or(Error::NotEnoughTauPowers(degree + 1))?;
 
-        let mut h_query = vec![E::G1Affine::zero(); degree];
-        cfg_into_iter!(0..degree).for_each(|i| {
-            let tmp = accum.tau_powers_g1[i + degree].into_projective();
-            let tmp2 = accum.tau_powers_g1[i].into_projective();
-            h_query[i] = (tmp - tmp2).into_affine();
-        });
+        let h_query = cfg_into_iter!(0..degree)
+            .map(|i| {
+                let tmp = accum.tau_powers_g1[i + degree].into_projective();
+                let tmp2 = accum.tau_powers_g1[i].into_projective();
+                (tmp - tmp2).into_affine()
+            })
+            .collect::<Vec<_>>();
 
         let tau_lagrange_g1 = domain.ifft(&batch_into_projective(&accum.tau_powers_g1));
         let tau_lagrange_g2 = domain.ifft(&batch_into_projective(&accum.tau_powers_g2));
@@ -62,19 +68,15 @@ impl<E: PairingEngine> Transcript<E> {
         let beta_lagrange_g1 = domain.ifft(&batch_into_projective(&accum.beta_tau_powers_g1));
         let num_witnesses =
             constraint_matrices.num_witness_variables + constraint_matrices.num_instance_variables;
-        let mut a_g1 = vec![E::G1Projective::zero(); num_witnesses];
-        let mut b_g1 = vec![E::G1Projective::zero(); num_witnesses];
-        let mut b_g2 = vec![E::G2Projective::zero(); num_witnesses];
-        let mut ext = vec![E::G1Projective::zero(); num_witnesses];
+        let a_g1 = Arc::new(Mutex::new(vec![E::G1Projective::zero(); num_witnesses]));
+        let b_g1 = Arc::new(Mutex::new(vec![E::G1Projective::zero(); num_witnesses]));
+        let b_g2 = Arc::new(Mutex::new(vec![E::G2Projective::zero(); num_witnesses]));
+        let ext = Arc::new(Mutex::new(vec![E::G1Projective::zero(); num_witnesses]));
 
-        a_g1[0..num_instance_variables]
+        a_g1.lock()?[0..num_instance_variables]
             .clone_from_slice(&tau_lagrange_g1[num_constraints..total_constraints]);
-        ext[0..num_instance_variables]
+        ext.lock()?[0..num_instance_variables]
             .clone_from_slice(&beta_lagrange_g1[num_constraints..total_constraints]);
-
-        assert_eq!(a_g1.len(), b_g1.len());
-        assert_eq!(a_g1.len(), b_g2.len());
-        assert_eq!(a_g1.len(), ext.len());
 
         cfg_iter!(constraint_matrices.a)
             .zip(constraint_matrices.b)
@@ -86,24 +88,24 @@ impl<E: PairingEngine> Transcript<E> {
             .for_each(
                 |((((((a_poly, b_poly), c_poly), tau_g1), tau_g2), alpha_tau), beta_tau)| {
                     cfg_iter!(a_poly).for_each(|(coeff, index)| {
-                        a_g1[*index] += tau_g1.mul(coeff.into_repr());
-                        ext[*index] += beta_tau.mul(coeff.into_repr());
+                        a_g1.lock().unwrap()[*index] += tau_g1.mul(coeff.into_repr());
+                        ext.lock().unwrap()[*index] += beta_tau.mul(coeff.into_repr());
                     });
                     cfg_iter!(b_poly).for_each(|(coeff, index)| {
-                        b_g1[*index] += tau_g1.mul(coeff.into_repr());
-                        b_g2[*index] += tau_g2.mul(coeff.into_repr());
-                        ext[*index] += alpha_tau.mul(coeff.into_repr());
+                        b_g1.lock().unwrap()[*index] += tau_g1.mul(coeff.into_repr());
+                        b_g2.lock().unwrap()[*index] += tau_g2.mul(coeff.into_repr());
+                        ext.lock().unwrap()[*index] += alpha_tau.mul(coeff.into_repr());
                     });
                     cfg_iter!(c_poly).for_each(|(coeff, index)| {
-                        ext[*index] += tau_g1.mul(coeff.into_repr());
+                        ext.lock().unwrap()[*index] += tau_g1.mul(coeff.into_repr());
                     });
                 },
             );
 
-        let a_query = ProjectiveCurve::batch_normalization_into_affine(&a_g1);
-        let b_g1_query = ProjectiveCurve::batch_normalization_into_affine(&b_g1);
-        let b_g2_query = ProjectiveCurve::batch_normalization_into_affine(&b_g2);
-        let ext = ProjectiveCurve::batch_normalization_into_affine(&ext);
+        let a_query = ProjectiveCurve::batch_normalization_into_affine(&a_g1.lock()?);
+        let b_g1_query = ProjectiveCurve::batch_normalization_into_affine(&b_g1.lock()?);
+        let b_g2_query = ProjectiveCurve::batch_normalization_into_affine(&b_g2.lock()?);
+        let ext = ProjectiveCurve::batch_normalization_into_affine(&ext.lock()?);
 
         let public_cross_terms = Vec::from(&ext[..constraint_matrices.num_instance_variables]);
         let private_cross_terms = Vec::from(&ext[constraint_matrices.num_instance_variables..]);
@@ -121,7 +123,7 @@ impl<E: PairingEngine> Transcript<E> {
             a_query,
             b_g1_query,
             b_g2_query,
-            h_query,
+            h_query: h_query.to_vec(),
             l_query: private_cross_terms,
         };
 

@@ -1,11 +1,15 @@
-use ark_relations::r1cs::SynthesisError;
+use std::sync::PoisonError;
 
+use ark_relations::r1cs::SynthesisError;
 use thiserror::Error;
 
 #[derive(Error, Clone, Debug, Eq, PartialEq)]
 pub enum Error {
     #[error("Constraint System: {0}")]
     ConstraintSystem(#[from] SynthesisError),
+
+    #[error("Lock Already Held")]
+    Locked,
 
     #[error("Missing Constraint System Matrices")]
     MissingCSMatrices,
@@ -42,4 +46,10 @@ pub enum Error {
 
     #[error("{0}")]
     Custom(String),
+}
+
+impl<E> From<PoisonError<E>> for Error {
+    fn from(_err: PoisonError<E>) -> Self {
+        Error::Locked
+    }
 }
