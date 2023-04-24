@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn from_ptau_file_works() -> Result<(), Box<dyn Error>> {
         let ptau_path = "pot8.ptau";
-        let accum = Accumulator::<Bn254>::from_ptau_file(ptau_path)?;
+        let _ = Accumulator::<Bn254>::from_ptau_file(ptau_path)?;
 
         Ok(())
     }
