@@ -82,8 +82,12 @@ mod tests {
             },
             rng,
         )?;
+
         let valid = Groth16::verify(&pk.vk, &[Fr::from(3)], &proof)?;
         assert!(valid, "Proof must be valid");
+
+        let valid = Groth16::verify(&pk.vk, &[Fr::from(4)], &proof)?;
+        assert!(!valid, "Proof must be not valid");
 
         Ok(())
     }
