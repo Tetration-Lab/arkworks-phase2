@@ -11,10 +11,7 @@ use ark_serialize::CanonicalSerialize;
 use crate::error::Error;
 
 pub trait PairingReader: PairingEngine {
-    #[inline]
     fn read_g1<R: Read>(reader: &mut R) -> Result<Self::G1Affine, Error>;
-
-    #[inline]
     fn read_g2<R: Read>(reader: &mut R) -> Result<Self::G2Affine, Error>;
 }
 

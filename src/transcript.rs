@@ -238,7 +238,7 @@ impl<E: PairingEngine> Transcript<E> {
         accum: &Accumulator<E>,
         circuit: C,
     ) -> Result<(), Error> {
-        let initial_transcript = Transcript::new_from_accumulator(&accum, circuit)?;
+        let initial_transcript = Transcript::new_from_accumulator(accum, circuit)?;
         (initial_transcript.initial_key == self.initial_key)
             .then_some(())
             .ok_or(Error::InvalidPartialKey)?;

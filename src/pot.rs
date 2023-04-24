@@ -107,7 +107,7 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
             let buf: &mut BufReader<File> = &mut reader;
             let mut b = [0u8; 4];
             buf.read_exact(&mut b)?;
-            let ty = b.into_iter().map(|x| char::from(x)).collect::<String>();
+            let ty = b.into_iter().map(char::from).collect::<String>();
             add_to_trace!(|| "Type: ", || ty);
 
             let mut b = [0u8; 4];
@@ -146,7 +146,7 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
 
         let header = section
             .get(&1)
-            .and_then(|e| e.get(0))
+            .and_then(|e| e.first())
             .expect("Header not found");
         reader.seek(SeekFrom::Start(header.0))?;
         let mut b = [0u8; 4];
@@ -171,7 +171,7 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
 
         let ceremony = section
             .get(&7)
-            .and_then(|e| e.get(0))
+            .and_then(|e| e.first())
             .expect("Ceremony not found");
         reader.seek(SeekFrom::Start(ceremony.0))?;
         let mut b = [0u8; 4];
@@ -189,7 +189,7 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
 
         let tau_g1s = section
             .get(&2)
-            .and_then(|e| e.get(0))
+            .and_then(|e| e.first())
             .expect("tau_g1 not found");
         reader.seek(SeekFrom::Start(tau_g1s.0))?;
 

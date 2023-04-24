@@ -40,7 +40,7 @@ mod tests {
         ) -> ark_relations::r1cs::Result<()> {
             let a = FpVar::new_witness(cs.clone(), || Ok(self.a))?;
             let b = FpVar::new_witness(cs.clone(), || Ok(self.b))?;
-            let c = FpVar::new_input(cs.clone(), || Ok(self.c))?;
+            let c = FpVar::new_input(cs, || Ok(self.c))?;
             let d = &a + &b;
 
             for _ in 0..(NUM_CONSTRAINTS - 5) {
