@@ -238,14 +238,73 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
 mod tests {
     use std::error::Error;
 
-    use ark_bn254::Bn254;
+    use ark_bn254::{Bn254, Fr};
+    use ark_ff::Zero;
+    use ark_groth16::Groth16;
+    use ark_r1cs_std::{
+        fields::fp::FpVar,
+        prelude::{AllocVar, EqGadget},
+    };
+    use ark_relations::r1cs::ConstraintSynthesizer;
+    use ark_snark::SNARK;
+    use rand::rngs::OsRng;
+
+    use crate::transcript::Transcript;
 
     use super::Accumulator;
 
+    struct DummyCircuit {
+        pub a: Fr,
+        pub b: Fr,
+        pub c: Fr,
+    }
+
+    impl ConstraintSynthesizer<Fr> for DummyCircuit {
+        fn generate_constraints(
+            self,
+            cs: ark_relations::r1cs::ConstraintSystemRef<Fr>,
+        ) -> ark_relations::r1cs::Result<()> {
+            let a = FpVar::new_witness(cs.clone(), || Ok(self.a))?;
+            let b = FpVar::new_witness(cs.clone(), || Ok(self.b))?;
+            let c = FpVar::new_input(cs, || Ok(self.c))?;
+            let d = &a + &b;
+
+            c.enforce_equal(&d)?;
+
+            Ok(())
+        }
+    }
+
     #[test]
     fn from_ptau_file_works() -> Result<(), Box<dyn Error>> {
+        let rng = &mut OsRng;
         let ptau_path = "pot8.ptau";
-        let _ = Accumulator::<Bn254>::from_ptau_file(ptau_path)?;
+
+        let accum = Accumulator::<Bn254>::from_ptau_file(ptau_path)?;
+        let transcript = Transcript::new_from_accumulator(
+            &accum,
+            DummyCircuit {
+                a: Fr::zero(),
+                b: Fr::zero(),
+                c: Fr::zero(),
+            },
+        )?;
+
+        let proof = Groth16::prove(
+            &transcript.key.key,
+            DummyCircuit {
+                a: Fr::from(1),
+                b: Fr::from(1),
+                c: Fr::from(2),
+            },
+            rng,
+        )?;
+
+        let valid = Groth16::verify(&transcript.key.key.vk, &[Fr::from(2)], &proof)?;
+        assert!(valid, "Proof must be valid");
+
+        let valid = Groth16::verify(&transcript.key.key.vk, &[Fr::from(4)], &proof)?;
+        assert!(!valid, "Proof must be not valid");
 
         Ok(())
     }
