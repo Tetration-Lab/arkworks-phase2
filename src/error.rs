@@ -8,6 +8,12 @@ pub enum Error {
     #[error("Constraint System: {0}")]
     ConstraintSystem(#[from] SynthesisError),
 
+    #[error("Try From Int: {0}")]
+    TryFromInt(#[from] std::num::TryFromIntError),
+
+    #[error("IO Error: {0}")]
+    IO(String),
+
     #[error("Lock Already Held")]
     Locked,
 
@@ -44,6 +50,9 @@ pub enum Error {
     #[error("Invalid Perpetual Power of Tau Powers")]
     InvalidPPOTPowers,
 
+    #[error("Ptau Field Check Not Matching")]
+    PtauFieldNotMatching,
+
     #[error("{0}")]
     Custom(String),
 }
@@ -51,5 +60,11 @@ pub enum Error {
 impl<E> From<PoisonError<E>> for Error {
     fn from(_err: PoisonError<E>) -> Self {
         Error::Locked
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(value: std::io::Error) -> Self {
+        Self::IO(value.to_string())
     }
 }

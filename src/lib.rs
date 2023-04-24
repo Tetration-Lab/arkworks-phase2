@@ -4,6 +4,7 @@ pub mod key;
 pub mod keypair;
 pub mod pot;
 pub mod ratio;
+pub mod reader;
 pub mod transcript;
 pub mod utils;
 

@@ -1,15 +1,22 @@
+use std::{
+    collections::BTreeMap,
+    fs::File,
+    io::{BufReader, Read, Seek, SeekFrom},
+    iter,
+    path::Path,
+};
+
 use ark_ec::{AffineCurve, PairingEngine};
-use ark_ff::{One, UniformRand};
+use ark_ff::{BigInteger, FpParameters, One, PrimeField, UniformRand};
 use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
 use ark_relations::r1cs::SynthesisError;
-use ark_std::cfg_iter_mut;
+use ark_std::{add_to_trace, cfg_iter_mut, end_timer, start_timer};
 use rand::Rng;
-use std::iter;
-
-use crate::error::Error;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+
+use crate::{error::Error, reader::PairingReader};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub struct Accumulator<E: PairingEngine> {
@@ -89,69 +96,53 @@ impl<E: PairingEngine> Accumulator<E> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::{
-        collections::BTreeMap,
-        error::Error,
-        fs::File,
-        io::{BufReader, Seek, SeekFrom},
-    };
+impl<E: PairingEngine + PairingReader> Accumulator<E> {
+    pub fn from_ptau_file<P: AsRef<Path>>(path: P) -> Result<Accumulator<E>, Error> {
+        let timer = start_timer!(|| "Reading from ptau file");
 
-    use ark_bn254::Bn254;
-    use ark_ec::{AffineCurve, PairingEngine};
-    use ark_ff::{BigInteger, FpParameters, PrimeField, Zero};
-    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Read};
+        let mut reader = BufReader::new(File::open(path)?);
+        let section = {
+            let timer = start_timer!(|| "Reading file header");
 
-    type Section = BTreeMap<u32, Vec<(u64, u64)>>;
-    type Curve = Bn254;
-
-    fn read_bin(buf: &mut BufReader<File>) -> Result<Section, Box<dyn Error>> {
-        let mut b = [0u8; 4];
-        buf.read_exact(&mut b)?;
-        let ty = b.into_iter().map(|x| char::from(x)).collect::<String>();
-        println!("Type: {ty}");
-
-        let mut b = [0u8; 4];
-        buf.read_exact(&mut b)?;
-        let version = u32::from_le_bytes(b);
-        println!("Version: {version}");
-
-        let mut b = [0u8; 4];
-        buf.read_exact(&mut b)?;
-        let n_section = u32::from_le_bytes(b);
-        println!("Sections: {n_section}");
-
-        let mut section = Section::new();
-        for _ in 0..n_section {
+            let buf: &mut BufReader<File> = &mut reader;
             let mut b = [0u8; 4];
             buf.read_exact(&mut b)?;
-            let ht = u32::from_le_bytes(b);
+            let ty = b.into_iter().map(|x| char::from(x)).collect::<String>();
+            add_to_trace!(|| "Type: ", || ty);
 
-            let mut b = [0u8; 8];
+            let mut b = [0u8; 4];
             buf.read_exact(&mut b)?;
-            let hl = u64::from_le_bytes(b);
+            let version = u32::from_le_bytes(b);
+            add_to_trace!(|| "Version: ", || version.to_string());
 
-            let current_pos = buf.stream_position()?;
-            section
-                .entry(ht)
-                .or_insert(Vec::new())
-                .push((current_pos, hl));
+            let mut b = [0u8; 4];
+            buf.read_exact(&mut b)?;
+            let n_section = u32::from_le_bytes(b);
+            add_to_trace!(|| "Sections : ", || n_section.to_string());
 
-            buf.seek_relative(hl.try_into()?)?;
-        }
+            let mut section = BTreeMap::new();
+            for _ in 0..n_section {
+                let mut b = [0u8; 4];
+                buf.read_exact(&mut b)?;
+                let ht = u32::from_le_bytes(b);
 
-        println!("Section {:?}", section);
+                let mut b = [0u8; 8];
+                buf.read_exact(&mut b)?;
+                let hl = u64::from_le_bytes(b);
 
-        Ok(section)
-    }
+                let current_pos = buf.stream_position()?;
+                section
+                    .entry(ht)
+                    .or_insert(Vec::new())
+                    .push((current_pos, hl));
 
-    #[test]
-    fn from_ptau_file() -> Result<(), Box<dyn Error>> {
-        let f = File::open("pot8.ptau")?;
-        let mut reader = BufReader::new(f);
-        let section = read_bin(&mut reader)?;
-        //let mut buffer = Vec::new();
+                buf.seek_relative(hl.try_into()?)?;
+            }
+
+            end_timer!(timer);
+
+            Result::<_, Error>::Ok(section)
+        }?;
 
         let header = section
             .get(&1)
@@ -161,26 +152,22 @@ mod tests {
         let mut b = [0u8; 4];
         reader.read_exact(&mut b)?;
         let n = u32::from_le_bytes(b) as usize;
-        println!("Fr length {}", n);
 
         let mut buffer = vec![0u8; n];
         reader.read_exact(&mut buffer)?;
-        println!(
-            "Fq bytes matched: {}",
-            buffer
-                == <<<Curve as PairingEngine>::Fq as PrimeField>::Params as FpParameters>::MODULUS
-                    .to_bytes_le()
-        );
+        (buffer == <<E::Fq as PrimeField>::Params as FpParameters>::MODULUS.to_bytes_le())
+            .then_some(())
+            .ok_or(Error::PtauFieldNotMatching)?;
 
         let mut b = [0u8; 4];
         reader.read_exact(&mut b)?;
         let power = u32::from_le_bytes(b);
-        println!("Power {}", power);
+        add_to_trace!(|| "Power: ", || power.to_string());
 
         let mut b = [0u8; 4];
         reader.read_exact(&mut b)?;
         let ceremony_power = u32::from_le_bytes(b);
-        println!("Ceremony power {}", ceremony_power);
+        add_to_trace!(|| "Ceremony Power: ", || ceremony_power.to_string());
 
         let ceremony = section
             .get(&7)
@@ -190,20 +177,62 @@ mod tests {
         let mut b = [0u8; 4];
         reader.read_exact(&mut b)?;
         let n_contribution = u32::from_le_bytes(b);
-        println!("Contributions {}", n_contribution);
+        add_to_trace!(|| "Ceremony Length: ", || n_contribution.to_string());
 
-        let g1_f_size =
-            <<<Curve as PairingEngine>::G1Affine as AffineCurve>::BaseField as Zero>::zero()
-                .serialized_size();
-        let _g2_f_size =
-            <<<Curve as PairingEngine>::G2Affine as AffineCurve>::BaseField as Zero>::zero()
-                .serialized_size();
+        let n_tau_g1s = 2u64.pow(power) * 2 - 1;
+        let n_tau_g2s = 2u64.pow(power);
 
-        let mut b = vec![0u8; g1_f_size * 2];
-        reader.read_exact(&mut b)?;
-        let _tau_g1 =
-            <<Curve as PairingEngine>::G1Affine as CanonicalDeserialize>::deserialize(&*b)?;
+        let element_timer = start_timer!(|| "Reading pot elements");
 
-        Ok(())
+        add_to_trace!(|| "Tau G1 Length: ", || n_tau_g1s.to_string());
+        add_to_trace!(|| "Tau G2 Length: ", || n_tau_g2s.to_string());
+
+        let tau_g1s = section
+            .get(&2)
+            .and_then(|e| e.get(0))
+            .expect("tau_g1 not found");
+        reader.seek(SeekFrom::Start(tau_g1s.0))?;
+
+        let tau_g1_timer = start_timer!(|| "Reading tau g1");
+        let tau_g1 = (0..n_tau_g1s)
+            .map(|_| E::read_g1(&mut reader))
+            .collect::<Result<Vec<_>, _>>()?;
+        end_timer!(tau_g1_timer);
+
+        let tau_g2_timer = start_timer!(|| "Reading tau g2");
+        let tau_g2 = (0..n_tau_g2s)
+            .map(|_| E::read_g2(&mut reader))
+            .collect::<Result<Vec<_>, _>>()?;
+        end_timer!(tau_g2_timer);
+
+        let alpha_tau_g1_timer = start_timer!(|| "Reading alpha tau g1");
+        let alpha_tau_g1 = (0..n_tau_g2s)
+            .map(|_| E::read_g1(&mut reader))
+            .collect::<Result<Vec<_>, _>>()?;
+        end_timer!(alpha_tau_g1_timer);
+
+        let beta_tau_g1_timer = start_timer!(|| "Reading beta tau g1");
+        let beta_tau_g1 = (0..n_tau_g2s)
+            .map(|_| E::read_g1(&mut reader))
+            .collect::<Result<Vec<_>, _>>()?;
+        end_timer!(beta_tau_g1_timer);
+
+        let beta_g2_timer = start_timer!(|| "Reading beta g2");
+        let beta_g2 = E::read_g2(&mut reader)?;
+        end_timer!(beta_g2_timer);
+
+        end_timer!(element_timer);
+        end_timer!(timer);
+
+        Ok(Accumulator {
+            tau_powers_g1: tau_g1,
+            tau_powers_g2: tau_g2,
+            alpha_tau_powers_g1: alpha_tau_g1,
+            beta_tau_powers_g1: beta_tau_g1,
+            beta_g2,
+        })
     }
 }
+
+#[cfg(test)]
+mod tests {}
