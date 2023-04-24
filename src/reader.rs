@@ -37,7 +37,7 @@ impl<T: BnParameters> PairingReader for Bn<T> {
         let zero = Self::Fq::zero();
         let fp2_zero = <Self::G2Affine as AffineCurve>::BaseField::zero();
         let len = zero.uncompressed_size();
-        let mut b = vec![0; len * 2];
+        let mut b = vec![0; len * 4];
         reader.read_exact(&mut b)?;
         let x0 = Self::Fq::from_le_bytes_mod_order(&b[..len]);
         let x1 = Self::Fq::from_le_bytes_mod_order(&b[len..len * 2]);
@@ -72,7 +72,7 @@ impl<T: Bls12Parameters> PairingReader for Bls12<T> {
         let zero = Self::Fq::zero();
         let fp2_zero = <Self::G2Affine as AffineCurve>::BaseField::zero();
         let len = zero.uncompressed_size();
-        let mut b = vec![0; len * 2];
+        let mut b = vec![0; len * 4];
         reader.read_exact(&mut b)?;
         let x0 = Self::Fq::from_le_bytes_mod_order(&b[..len]);
         let x1 = Self::Fq::from_le_bytes_mod_order(&b[len..len * 2]);

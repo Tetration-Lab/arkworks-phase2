@@ -235,4 +235,18 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use std::error::Error;
+
+    use ark_bn254::Bn254;
+
+    use super::Accumulator;
+
+    #[test]
+    fn from_ptau_file_works() -> Result<(), Box<dyn Error>> {
+        let ptau_path = "pot8.ptau";
+        let accum = Accumulator::<Bn254>::from_ptau_file(ptau_path)?;
+
+        Ok(())
+    }
+}
