@@ -88,7 +88,7 @@ impl<E: PairingEngine> Accumulator<E> {
         let domain = Radix2EvaluationDomain::<E::Fr>::new(max_constraints)
             .ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
         let degree = domain.size();
-        let g2_powers = match (max_constraints << 1) - 1 >= (degree << 1) {
+        let g2_powers = match ((max_constraints << 1) - 1) >= (degree << 1) {
             true => max_constraints,
             false => degree + 1,
         };
