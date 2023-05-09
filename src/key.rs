@@ -67,6 +67,17 @@ impl<E: PairingEngine> From<&'_ FullKey<E>> for PartialKey<E> {
     }
 }
 
+impl<E: PairingEngine> From<FullKey<E>> for PartialKey<E> {
+    fn from(val: FullKey<E>) -> Self {
+        PartialKey {
+            delta_g1: val.key.delta_g1,
+            delta_g2: val.key.vk.delta_g2,
+            h_query: val.key.h_query,
+            l_query: val.key.l_query,
+        }
+    }
+}
+
 impl<E: PairingEngine> From<&'_ ProvingKey<E>> for PartialKey<E> {
     fn from(val: &'_ ProvingKey<E>) -> Self {
         PartialKey {

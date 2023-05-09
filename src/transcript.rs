@@ -149,7 +149,7 @@ impl<E: PairingEngine> Transcript<E> {
         self.key.key.delta_g1 = self.key.key.delta_g1.mul(delta).into_affine();
         self.key.key.vk.delta_g2 = self.key.key.vk.delta_g2.mul(delta).into_affine();
         self.contributions.push(PublicKey {
-            partial_key: (&self.key).into(),
+            delta_g2: self.key.key.vk.delta_g2,
             proof,
         });
 
@@ -158,39 +158,40 @@ impl<E: PairingEngine> Transcript<E> {
 
     #[inline]
     pub fn verify(&self) -> Result<(), Error> {
-        let mut key: &PartialKey<E> = &self.initial_key;
+        let mut challenge: (E::G2Affine, Vec<u8>) =
+            (self.initial_key.delta_g2, self.initial_key.challenge()?);
         for contribution in self.contributions.iter() {
             contribution
                 .proof
-                .verify(&key.challenge()?)
+                .verify(&challenge.1)
                 .map_err(|_| Error::InvalidRatioProof)?;
 
             same_ratio_swap::<E>(
                 contribution.proof.get_g1(),
-                (key.delta_g2, contribution.partial_key.delta_g2),
+                (challenge.0, contribution.delta_g2),
             )
             .then_some(())
             .ok_or(Error::InvalidRatioProof)?;
-            key = &contribution.partial_key;
+            challenge = (contribution.delta_g2, contribution.challenge()?);
         }
 
         same_ratio_swap::<E>(
-            (self.initial_key.delta_g1, key.delta_g1),
-            (self.initial_key.delta_g2, key.delta_g2),
+            (self.initial_key.delta_g1, self.key.key.delta_g1),
+            (self.initial_key.delta_g2, challenge.0),
         )
         .then_some(())
         .ok_or(Error::InvalidRatioProof)?;
 
         same_ratio_swap::<E>(
-            merge_ratio_affine_vec(&key.h_query, &self.initial_key.h_query),
-            (self.initial_key.delta_g2, key.delta_g2),
+            merge_ratio_affine_vec(&self.key.key.h_query, &self.initial_key.h_query),
+            (self.initial_key.delta_g2, self.key.key.vk.delta_g2),
         )
         .then_some(())
         .ok_or(Error::InconsistentHChange)?;
 
         same_ratio_swap::<E>(
-            merge_ratio_affine_vec(&key.l_query, &self.initial_key.l_query),
-            (self.initial_key.delta_g2, key.delta_g2),
+            merge_ratio_affine_vec(&self.key.key.l_query, &self.initial_key.l_query),
+            (self.initial_key.delta_g2, self.key.key.vk.delta_g2),
         )
         .then_some(())
         .ok_or(Error::InconsistentLChange)?;
@@ -241,7 +242,7 @@ impl<E: PairingEngine> Transcript<E> {
         let initial_transcript = Transcript::new_from_accumulator(accum, circuit)?;
         (initial_transcript.initial_key == self.initial_key)
             .then_some(())
-            .ok_or(Error::InvalidPartialKey)?;
+            .ok_or(Error::InvalidKey("initial_key"))?;
         (initial_transcript.key.key.beta_g1 == self.key.key.beta_g1)
             .then_some(())
             .ok_or(Error::InvalidKey("pk: beta_g1"))?;
