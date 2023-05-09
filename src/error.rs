@@ -14,6 +14,9 @@ pub enum Error {
     #[error("IO Error: {0}")]
     IO(String),
 
+    #[error("Serialization Error: {0}")]
+    Serialization(String),
+
     #[error("Lock Already Held")]
     Locked,
 
@@ -53,6 +56,9 @@ pub enum Error {
     #[error("Ptau Field Check Not Matching")]
     PtauFieldNotMatching,
 
+    #[error("Read Error: {0}")]
+    Read(String),
+
     #[error("{0}")]
     Custom(String),
 }
@@ -66,5 +72,11 @@ impl<E> From<PoisonError<E>> for Error {
 impl From<std::io::Error> for Error {
     fn from(value: std::io::Error) -> Self {
         Self::IO(value.to_string())
+    }
+}
+
+impl From<ark_serialize::SerializationError> for Error {
+    fn from(value: ark_serialize::SerializationError) -> Self {
+        Self::Serialization(value.to_string())
     }
 }

@@ -187,38 +187,62 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
         add_to_trace!(|| "Tau G1 Length: ", || n_tau_g1s.to_string());
         add_to_trace!(|| "Tau G2 Length: ", || n_tau_g2s.to_string());
 
-        let tau_g1s = section
+        let tau_g1_sec = section
             .get(&2)
             .and_then(|e| e.first())
             .expect("tau_g1 not found");
-        reader.seek(SeekFrom::Start(tau_g1s.0))?;
+        reader.seek(SeekFrom::Start(tau_g1_sec.0))?;
 
         let tau_g1_timer = start_timer!(|| "Reading tau g1");
         let tau_g1 = (0..n_tau_g1s)
-            .map(|_| E::read_g1(&mut reader))
+            .map(|_| E::read_ptau_g1(&mut reader))
             .collect::<Result<Vec<_>, _>>()?;
         end_timer!(tau_g1_timer);
 
+        let tau_g2_sec = section
+            .get(&3)
+            .and_then(|e| e.first())
+            .expect("tau_g2 not found");
+        reader.seek(SeekFrom::Start(tau_g2_sec.0))?;
+
         let tau_g2_timer = start_timer!(|| "Reading tau g2");
         let tau_g2 = (0..n_tau_g2s)
-            .map(|_| E::read_g2(&mut reader))
+            .map(|_| E::read_ptau_g2(&mut reader))
             .collect::<Result<Vec<_>, _>>()?;
         end_timer!(tau_g2_timer);
 
+        let alpha_tau_g1_sec = section
+            .get(&4)
+            .and_then(|e| e.first())
+            .expect("alpha_tau_g1 not found");
+        reader.seek(SeekFrom::Start(alpha_tau_g1_sec.0))?;
+
         let alpha_tau_g1_timer = start_timer!(|| "Reading alpha tau g1");
         let alpha_tau_g1 = (0..n_tau_g2s)
-            .map(|_| E::read_g1(&mut reader))
+            .map(|_| E::read_ptau_g1(&mut reader))
             .collect::<Result<Vec<_>, _>>()?;
         end_timer!(alpha_tau_g1_timer);
 
+        let beta_tau_g1_sec = section
+            .get(&5)
+            .and_then(|e| e.first())
+            .expect("beta_tau_g1 not found");
+        reader.seek(SeekFrom::Start(beta_tau_g1_sec.0))?;
+
         let beta_tau_g1_timer = start_timer!(|| "Reading beta tau g1");
         let beta_tau_g1 = (0..n_tau_g2s)
-            .map(|_| E::read_g1(&mut reader))
+            .map(|_| E::read_ptau_g1(&mut reader))
             .collect::<Result<Vec<_>, _>>()?;
         end_timer!(beta_tau_g1_timer);
 
+        let beta_g2_sec = section
+            .get(&6)
+            .and_then(|e| e.first())
+            .expect("beta_g2 not found");
+        reader.seek(SeekFrom::Start(beta_g2_sec.0))?;
+
         let beta_g2_timer = start_timer!(|| "Reading beta g2");
-        let beta_g2 = E::read_g2(&mut reader)?;
+        let beta_g2 = E::read_ptau_g2(&mut reader)?;
         end_timer!(beta_g2_timer);
 
         end_timer!(element_timer);
