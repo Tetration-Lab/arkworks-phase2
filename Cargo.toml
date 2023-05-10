@@ -26,6 +26,7 @@ rayon = { version = "^1.7.0", optional = true }
 [dev-dependencies]
 ark-std = { version = "^0.3.0", default-features = false, features = ["print-trace"] }
 ark-bn254 = { version = "^0.3.0", default-features = false, features = ["curve"] }
+ark-bls12-381 = { version = "^0.3.0", default-features = false, features = ["curve"] }
 ark-snark = { version = "^0.3.0", default-features = false }
 ark-groth16 = { version = "^0.3.0", default-features = false, features = ["parallel"] }
 
