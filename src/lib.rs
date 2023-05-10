@@ -1,8 +1,8 @@
+pub mod accumulator;
 pub mod error;
 pub mod hasher;
 pub mod key;
 pub mod keypair;
-pub mod pot;
 pub mod ratio;
 pub mod reader;
 pub mod transcript;
@@ -23,7 +23,7 @@ mod tests {
     use ark_snark::SNARK;
     use rand::rngs::OsRng;
 
-    use crate::{pot::Accumulator, transcript::Transcript};
+    use crate::{accumulator::Accumulator, transcript::Transcript};
 
     const NUM_CONSTRAINTS: usize = 50;
 

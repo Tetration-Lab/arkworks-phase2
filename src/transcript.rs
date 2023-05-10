@@ -9,10 +9,10 @@ use ark_std::{cfg_into_iter, cfg_iter};
 use rand::Rng;
 
 use crate::{
+    accumulator::Accumulator,
     error::Error,
     key::{FullKey, PartialKey},
     keypair::PublicKey,
-    pot::Accumulator,
     ratio::RatioProof,
     utils::{
         batch_into_projective, batch_mul_fixed_scalar, merge_ratio_affine_vec, same_ratio_swap,
