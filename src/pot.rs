@@ -6,7 +6,7 @@ use std::{
     path::Path,
 };
 
-use ark_ec::{AffineCurve, PairingEngine};
+use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
 use ark_ff::{BigInteger, FpParameters, One, PrimeField, UniformRand};
 use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
 use ark_relations::r1cs::SynthesisError;
@@ -16,7 +16,7 @@ use rand::Rng;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use crate::{error::Error, reader::PairingReader};
+use crate::{error::Error, reader::PairingReader, utils::batch_into_projective};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub struct Accumulator<E: PairingEngine> {
@@ -256,14 +256,106 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
             beta_g2,
         })
     }
+
+    pub fn from_radix_file<P: AsRef<Path>>(path: P) -> Result<Accumulator<E>, Error> {
+        let timer = start_timer!(|| "Reading from phase1radix file");
+        let path: &Path = path.as_ref();
+
+        let n_taus = 1usize
+            << path
+                .iter()
+                .last()
+                .and_then(|p| {
+                    p.to_str()
+                        .and_then(|e| e.split("phase1radix2m").last())
+                        .and_then(|e| e.parse::<usize>().ok())
+                })
+                .ok_or(crate::error::Error::Read(String::from(
+                    "Unable to read evaluation domain from radix file name",
+                )))?;
+        let domain =
+            Radix2EvaluationDomain::new(n_taus).ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
+
+        let mut reader = BufReader::new(File::open(path)?);
+
+        let aux_timer = start_timer!(|| "Reading auxilary");
+        let _a = E::read_radix_g1(&mut reader)?;
+        let _b = E::read_radix_g1(&mut reader)?;
+        end_timer!(aux_timer);
+
+        let beta_g2_timer = start_timer!(|| "Reading beta g2");
+        let beta_g2 = E::read_radix_g2(&mut reader)?;
+        end_timer!(beta_g2_timer);
+
+        let tau_g1_timer = start_timer!(|| "Reading tau g1");
+        let mut tau_powers_g1 = ProjectiveCurve::batch_normalization_into_affine(
+            &domain.fft(&batch_into_projective(
+                &(0..n_taus)
+                    .map(|_| E::read_radix_g1(&mut reader))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+        );
+        end_timer!(tau_g1_timer);
+
+        let tau_g2_timer = start_timer!(|| "Reading tau g2");
+        let tau_powers_g2 = ProjectiveCurve::batch_normalization_into_affine(
+            &domain.fft(&batch_into_projective(
+                &(0..n_taus)
+                    .map(|_| E::read_radix_g2(&mut reader))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+        );
+        end_timer!(tau_g2_timer);
+
+        let alpha_tau_g1_timer = start_timer!(|| "Reading alpha tau g1");
+        let alpha_tau_powers_g1 = ProjectiveCurve::batch_normalization_into_affine(
+            &domain.fft(&batch_into_projective(
+                &(0..n_taus)
+                    .map(|_| E::read_radix_g1(&mut reader))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+        );
+        end_timer!(alpha_tau_g1_timer);
+
+        let beta_tau_g1_timer = start_timer!(|| "Reading beta tau g1");
+        let beta_tau_powers_g1 = ProjectiveCurve::batch_normalization_into_affine(
+            &domain.fft(&batch_into_projective(
+                &(0..n_taus)
+                    .map(|_| E::read_radix_g1(&mut reader))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+        );
+        end_timer!(beta_tau_g1_timer);
+
+        let tau_g1_aux_timer = start_timer!(|| "Reading tau g1 auxilary");
+        tau_powers_g1.append(
+            &mut (0..n_taus - 1)
+                .map(|i| -> Result<_, Error> {
+                    Ok(E::read_radix_g1(&mut reader)? + tau_powers_g1[i])
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+        end_timer!(tau_g1_aux_timer);
+
+        end_timer!(timer);
+
+        Ok(Accumulator {
+            tau_powers_g1,
+            tau_powers_g2,
+            alpha_tau_powers_g1,
+            beta_tau_powers_g1,
+            beta_g2,
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::error::Error;
 
+    use ark_bls12_381::Bls12_381;
     use ark_bn254::{Bn254, Fr};
-    use ark_ff::Zero;
+    use ark_ff::{PrimeField, Zero};
     use ark_groth16::Groth16;
     use ark_r1cs_std::{
         fields::fp::FpVar,
@@ -277,16 +369,16 @@ mod tests {
 
     use super::Accumulator;
 
-    struct DummyCircuit {
-        pub a: Fr,
-        pub b: Fr,
-        pub c: Fr,
+    struct DummyCircuit<F: PrimeField> {
+        pub a: F,
+        pub b: F,
+        pub c: F,
     }
 
-    impl ConstraintSynthesizer<Fr> for DummyCircuit {
+    impl<F: PrimeField> ConstraintSynthesizer<F> for DummyCircuit<F> {
         fn generate_constraints(
             self,
-            cs: ark_relations::r1cs::ConstraintSystemRef<Fr>,
+            cs: ark_relations::r1cs::ConstraintSystemRef<F>,
         ) -> ark_relations::r1cs::Result<()> {
             let a = FpVar::new_witness(cs.clone(), || Ok(self.a))?;
             let b = FpVar::new_witness(cs.clone(), || Ok(self.b))?;
@@ -308,18 +400,18 @@ mod tests {
         let transcript = Transcript::new_from_accumulator(
             &accum,
             DummyCircuit {
-                a: Fr::zero(),
-                b: Fr::zero(),
-                c: Fr::zero(),
+                a: ark_bn254::Fr::zero(),
+                b: ark_bn254::Fr::zero(),
+                c: ark_bn254::Fr::zero(),
             },
         )?;
 
         let proof = Groth16::prove(
             &transcript.key.key,
             DummyCircuit {
-                a: Fr::from(1),
-                b: Fr::from(1),
-                c: Fr::from(2),
+                a: ark_bn254::Fr::from(1),
+                b: ark_bn254::Fr::from(1),
+                c: ark_bn254::Fr::from(2),
             },
             rng,
         )?;
@@ -328,6 +420,48 @@ mod tests {
         assert!(valid, "Proof must be valid");
 
         let valid = Groth16::verify(&transcript.key.key.vk, &[Fr::from(4)], &proof)?;
+        assert!(!valid, "Proof must be not valid");
+
+        Ok(())
+    }
+
+    #[test]
+    fn from_radix_file_works() -> Result<(), Box<dyn Error>> {
+        let rng = &mut OsRng;
+        let radix_path = "phase1radix2m8";
+
+        let accum = Accumulator::<Bls12_381>::from_radix_file(radix_path)?;
+        let transcript = Transcript::new_from_accumulator(
+            &accum,
+            DummyCircuit {
+                a: ark_bls12_381::Fr::zero(),
+                b: ark_bls12_381::Fr::zero(),
+                c: ark_bls12_381::Fr::zero(),
+            },
+        )?;
+
+        let proof = Groth16::prove(
+            &transcript.key.key,
+            DummyCircuit {
+                a: ark_bls12_381::Fr::from(1),
+                b: ark_bls12_381::Fr::from(1),
+                c: ark_bls12_381::Fr::from(2),
+            },
+            rng,
+        )?;
+
+        let valid = Groth16::verify(
+            &transcript.key.key.vk,
+            &[ark_bls12_381::Fr::from(2)],
+            &proof,
+        )?;
+        assert!(valid, "Proof must be valid");
+
+        let valid = Groth16::verify(
+            &transcript.key.key.vk,
+            &[ark_bls12_381::Fr::from(4)],
+            &proof,
+        )?;
         assert!(!valid, "Proof must be not valid");
 
         Ok(())
