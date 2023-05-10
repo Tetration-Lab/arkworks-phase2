@@ -54,7 +54,7 @@ impl<E: PairingEngine> Transcript<E> {
             .then_some(())
             .ok_or(Error::NotEnoughTauPowers(degree + 1))?;
 
-        let h_query = cfg_into_iter!(0..degree)
+        let h_query = cfg_into_iter!(0..degree - 1)
             .map(|i| {
                 let tmp = accum.tau_powers_g1[i + degree].into_projective();
                 let tmp2 = accum.tau_powers_g1[i].into_projective();
