@@ -16,7 +16,10 @@ use crate::{
     key::{FullKey, PartialKey},
     keypair::PublicKey,
     ratio::RatioProof,
-    utils::{batch_mul_fixed_scalar, merge_ratio_affine_vec, same_ratio_swap, seeded_rng},
+    utils::{
+        batch_into_affine, batch_mul_fixed_scalar, merge_ratio_affine_vec, same_ratio_swap,
+        seeded_rng,
+    },
 };
 
 #[cfg(feature = "parallel")]
@@ -93,10 +96,10 @@ impl<E: PairingEngine> Transcript<E> {
             );
         end_timer!(specialize_constraints_timer);
 
-        let a_query = ProjectiveCurve::batch_normalization_into_affine(&a_g1.lock()?);
-        let b_g1_query = ProjectiveCurve::batch_normalization_into_affine(&b_g1.lock()?);
-        let b_g2_query = ProjectiveCurve::batch_normalization_into_affine(&b_g2.lock()?);
-        let ext = ProjectiveCurve::batch_normalization_into_affine(&ext.lock()?);
+        let a_query = batch_into_affine(&a_g1.lock()?);
+        let b_g1_query = batch_into_affine(&b_g1.lock()?);
+        let b_g2_query = batch_into_affine(&b_g2.lock()?);
+        let ext = batch_into_affine(&ext.lock()?);
 
         let public_cross_terms = Vec::from(&ext[..constraint_matrices.num_instance_variables]);
         let private_cross_terms = Vec::from(&ext[constraint_matrices.num_instance_variables..]);
