@@ -4,8 +4,9 @@ use crate::{
     utils::{same_ratio, seeded_rng, serialize},
 };
 use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Read, SerializationError, Write};
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(CanonicalSerialize, CanonicalDeserialize, Debug, Clone, Copy, PartialEq)]
 pub struct RatioProof<E: PairingEngine> {
     pub point: E::G1Affine,
     pub matching_point: E::G2Affine,

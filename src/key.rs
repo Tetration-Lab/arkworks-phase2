@@ -2,15 +2,16 @@ use std::borrow::Borrow;
 
 use ark_ec::PairingEngine;
 use ark_groth16::ProvingKey;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Read, SerializationError, Write};
 
 use crate::{error::Error, utils::serialize};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(CanonicalSerialize, CanonicalDeserialize, Debug, Clone, PartialEq)]
 pub struct FullKey<E: PairingEngine> {
     pub key: ProvingKey<E>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(CanonicalSerialize, CanonicalDeserialize, Debug, Clone, PartialEq)]
 pub struct PartialKey<E: PairingEngine> {
     pub delta_g1: E::G1Affine,
     pub delta_g2: E::G2Affine,

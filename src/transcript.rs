@@ -7,6 +7,7 @@ use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
 use ark_relations::r1cs::{
     ConstraintSynthesizer, ConstraintSystem, ConstraintSystemRef, SynthesisError,
 };
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Read, SerializationError, Write};
 use ark_std::{cfg_iter, end_timer, start_timer};
 use rand::Rng;
 
@@ -25,7 +26,7 @@ use crate::{
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(CanonicalSerialize, CanonicalDeserialize, Debug, Clone, PartialEq)]
 pub struct Transcript<E: PairingEngine> {
     pub key: FullKey<E>,
     pub initial_key: PartialKey<E>,
