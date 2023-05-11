@@ -252,8 +252,8 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
         let n_contribution = u32::from_le_bytes(b);
         add_to_trace!(|| "Ceremony Length: ", || n_contribution.to_string());
 
-        let n_tau_g1s = 2u64.pow(power) * 2 - 1;
-        let n_tau_g2s = 2u64.pow(power);
+        let n_tau_g2s = 1 << power;
+        let n_tau_g1s = n_tau_g2s - 1;
 
         let element_timer = start_timer!(|| "Reading pot elements");
 
