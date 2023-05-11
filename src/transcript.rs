@@ -30,7 +30,7 @@ pub struct Transcript<E: PairingEngine> {
 }
 
 impl<E: PairingEngine> Transcript<E> {
-    fn new_from_prepared_accumulator_cs(
+    fn new_from_prepared_accumulator_finalized_cs(
         accum: &PreparedAccumulator<E>,
         cs: ConstraintSystemRef<E::Fr>,
     ) -> Result<Self, Error> {
@@ -145,7 +145,7 @@ impl<E: PairingEngine> Transcript<E> {
             .then_some(())
             .ok_or(Error::InvalidPOTDegree(needed_degree))?;
 
-        Self::new_from_prepared_accumulator_cs(accum, cs)
+        Self::new_from_prepared_accumulator_finalized_cs(accum, cs)
     }
 
     pub fn new_from_accumulator<C: ConstraintSynthesizer<E::Fr>>(
@@ -171,7 +171,7 @@ impl<E: PairingEngine> Transcript<E> {
             .then_some(())
             .ok_or(Error::NotEnoughPOTDegree(ark_std::log2(total_constraints)))?;
 
-        Self::new_from_prepared_accumulator_cs(&accum.prepare_with_size(size)?, cs)
+        Self::new_from_prepared_accumulator_finalized_cs(&accum.prepare_with_size(size)?, cs)
     }
 
     pub fn contribute_seed(&mut self, seed: &[u8]) -> Result<(), Error> {
