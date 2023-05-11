@@ -12,6 +12,6 @@ pub struct PublicKey<E: PairingEngine> {
 
 impl<E: PairingEngine> PublicKey<E> {
     pub fn challenge(&self) -> Result<Vec<u8>, Error> {
-        Ok(serialize(&self.delta_g2)?)
+        serialize(&self.delta_g2)
     }
 }

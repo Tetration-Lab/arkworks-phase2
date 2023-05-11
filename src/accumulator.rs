@@ -407,6 +407,7 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
+#[must_use = "Prepared accumulator must be used in constraint generation"]
 pub struct PreparedAccumulator<E: PairingEngine> {
     pub alpha: E::G1Affine,
     pub beta: E::G1Affine,
