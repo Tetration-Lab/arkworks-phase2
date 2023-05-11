@@ -20,10 +20,11 @@ mod tests {
         prelude::{AllocVar, EqGadget},
     };
     use ark_relations::r1cs::ConstraintSynthesizer;
+    use ark_serialize::CanonicalDeserialize;
     use ark_snark::SNARK;
     use rand::rngs::OsRng;
 
-    use crate::{accumulator::Accumulator, transcript::Transcript};
+    use crate::{accumulator::Accumulator, transcript::Transcript, utils::serialize_uncompressed};
 
     const NUM_CONSTRAINTS: usize = 50;
 
@@ -55,6 +56,7 @@ mod tests {
     fn groth16_domain() -> Result<(), Box<dyn Error>> {
         let rng = &mut OsRng;
         let mut accum = Accumulator::<Bn254>::empty_from_max_constraints(NUM_CONSTRAINTS)?;
+
         accum.contribute(rng);
 
         let mut transcript = Transcript::new_from_accumulator(
@@ -88,6 +90,30 @@ mod tests {
 
         let valid = Groth16::verify(&pk.vk, &[Fr::from(4)], &proof)?;
         assert!(!valid, "Proof must be not valid");
+
+        Ok(())
+    }
+
+    #[test]
+    fn correct_serialization() -> Result<(), Box<dyn Error>> {
+        let rng = &mut OsRng;
+        let mut accum = Accumulator::<Bn254>::empty_from_max_constraints(NUM_CONSTRAINTS)?;
+
+        accum.contribute(rng);
+
+        let transcript = Transcript::new_from_accumulator(
+            &accum,
+            DummyCircuit {
+                a: Fr::zero(),
+                b: Fr::zero(),
+                c: Fr::zero(),
+            },
+        )?;
+
+        let bytes = serialize_uncompressed(&transcript)?;
+        let transcript_deserialized = Transcript::<Bn254>::deserialize_uncompressed(&bytes[..])?;
+
+        assert_eq!(transcript, transcript_deserialized);
 
         Ok(())
     }
