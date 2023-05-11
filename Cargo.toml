@@ -32,4 +32,4 @@ ark-groth16 = { version = "^0.3.0", default-features = false, features = ["paral
 
 [features]
 default = []
-parallel = ["rayon", "ark-ff/parallel", "ark-ec/parallel", "ark-std/parallel", "ark-r1cs-std/parallel"]
+parallel = ["rayon", "ark-ff/parallel", "ark-ec/parallel", "ark-std/parallel", "ark-r1cs-std/parallel", "ark-poly/parallel"]
