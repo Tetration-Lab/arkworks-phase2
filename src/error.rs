@@ -47,14 +47,17 @@ pub enum Error {
     #[error("Invalid initial partial key")]
     InvalidPartialKey,
 
-    #[error("Too Enough Tau Powers G2, Needed Atleast {0}")]
-    NotEnoughTauPowers(usize),
-
-    #[error("Invalid Perpetual Power of Tau Powers")]
-    InvalidPPOTPowers,
-
     #[error("Ptau Field Check Not Matching")]
     PtauFieldNotMatching,
+
+    #[error("Too Enough POT Degree, Needed Atleast {0}")]
+    NotEnoughPOTDegree(u32),
+
+    #[error("Invalid Power of Tau Degree, Need {0}")]
+    InvalidPOTDegree(u32),
+
+    #[error("Invalid Power of Tau Size")]
+    InvalidPOTSize,
 
     #[error("Read Error: {0}")]
     Read(String),

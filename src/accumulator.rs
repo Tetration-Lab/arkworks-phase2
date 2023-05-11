@@ -6,17 +6,21 @@ use std::{
     path::Path,
 };
 
-use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
+use ark_ec::{AffineCurve, PairingEngine};
 use ark_ff::{BigInteger, FpParameters, One, PrimeField, UniformRand};
 use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
 use ark_relations::r1cs::SynthesisError;
-use ark_std::{add_to_trace, cfg_iter_mut, end_timer, start_timer};
+use ark_std::{add_to_trace, cfg_into_iter, cfg_iter_mut, end_timer, start_timer};
 use rand::Rng;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use crate::{error::Error, reader::PairingReader, utils::batch_into_projective};
+use crate::{
+    error::Error,
+    reader::PairingReader,
+    utils::{batch_into_affine, batch_into_projective},
+};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub struct Accumulator<E: PairingEngine> {
@@ -28,12 +32,56 @@ pub struct Accumulator<E: PairingEngine> {
 }
 
 impl<E: PairingEngine> Accumulator<E> {
+    pub fn prepare_with_size(&self, size: usize) -> Result<PreparedAccumulator<E>, Error> {
+        let (_, g1_len, g2_len) = self.check_pow_len();
+
+        let domain =
+            Radix2EvaluationDomain::new(size).ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
+        let size = domain.size();
+
+        (g2_len >= size && g1_len > (size << 1) - 1)
+            .then_some(())
+            .ok_or(Error::NotEnoughPOTDegree(ark_std::log2(size)))?;
+
+        let h_query = cfg_into_iter!(0..size - 1)
+            .map(|i| (self.tau_powers_g1[i + size] + -self.tau_powers_g1[i]))
+            .collect::<Vec<_>>();
+
+        let tau_lagrange_g1 = domain.ifft(&batch_into_projective(&self.tau_powers_g1[..size]));
+        let tau_lagrange_g2 = domain.ifft(&batch_into_projective(&self.tau_powers_g2[..size]));
+        let alpha_lagrange_g1 =
+            domain.ifft(&batch_into_projective(&self.alpha_tau_powers_g1[..size]));
+        let beta_lagrange_g1 =
+            domain.ifft(&batch_into_projective(&self.beta_tau_powers_g1[..size]));
+
+        Ok(PreparedAccumulator {
+            alpha: self.alpha_tau_powers_g1[0],
+            beta: self.beta_tau_powers_g1[0],
+            tau_lagrange_g1,
+            tau_lagrange_g2,
+            alpha_lagrange_g1,
+            beta_lagrange_g1,
+            beta_g2: self.beta_g2,
+            h_query,
+        })
+    }
+
+    pub fn prepare(&self) -> Result<PreparedAccumulator<E>, Error> {
+        let (valid, _, g2_len) = self.check_pow_len();
+
+        (valid && g2_len.is_power_of_two())
+            .then_some(())
+            .ok_or(Error::InvalidPOTSize)?;
+
+        self.prepare_with_size(g2_len)
+    }
+
     pub fn check_pow_len(&self) -> (bool, usize, usize) {
         let g1_len = self.tau_powers_g1.len();
         let g2_len = self.tau_powers_g2.len();
 
         (
-            (g1_len << 1) >= g2_len
+            ((g1_len << 1) - 1) >= g2_len
                 && g2_len == self.alpha_tau_powers_g1.len()
                 && g2_len == self.beta_tau_powers_g1.len(),
             g1_len,
@@ -82,6 +130,14 @@ impl<E: PairingEngine> Accumulator<E> {
             beta_tau_powers_g1: vec![E::G1Affine::prime_subgroup_generator(); g2_powers],
             beta_g2: E::G2Affine::prime_subgroup_generator(),
         }
+    }
+
+    pub fn empty_from_degree(degree: usize) -> Result<Self, Error> {
+        (degree <= 28)
+            .then_some(())
+            .ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
+
+        Ok(Self::empty(((1 << degree) << 1) - 1, 1 << degree))
     }
 
     pub fn empty_from_max_constraints(max_constraints: usize) -> Result<Self, Error> {
@@ -257,6 +313,7 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
         })
     }
 
+    #[deprecated = "Only use this for lesser degree constraint generation"]
     pub fn from_radix_file<P: AsRef<Path>>(path: P) -> Result<Accumulator<E>, Error> {
         let timer = start_timer!(|| "Reading from phase1radix file");
         let path: &Path = path.as_ref();
@@ -288,7 +345,7 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
         end_timer!(beta_g2_timer);
 
         let tau_g1_timer = start_timer!(|| "Reading tau g1");
-        let mut tau_powers_g1 = ProjectiveCurve::batch_normalization_into_affine(
+        let mut tau_powers_g1 = batch_into_affine(
             &domain.fft(&batch_into_projective(
                 &(0..n_taus)
                     .map(|_| E::read_radix_g1(&mut reader))
@@ -298,7 +355,7 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
         end_timer!(tau_g1_timer);
 
         let tau_g2_timer = start_timer!(|| "Reading tau g2");
-        let tau_powers_g2 = ProjectiveCurve::batch_normalization_into_affine(
+        let tau_powers_g2 = batch_into_affine(
             &domain.fft(&batch_into_projective(
                 &(0..n_taus)
                     .map(|_| E::read_radix_g2(&mut reader))
@@ -308,7 +365,7 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
         end_timer!(tau_g2_timer);
 
         let alpha_tau_g1_timer = start_timer!(|| "Reading alpha tau g1");
-        let alpha_tau_powers_g1 = ProjectiveCurve::batch_normalization_into_affine(
+        let alpha_tau_powers_g1 = batch_into_affine(
             &domain.fft(&batch_into_projective(
                 &(0..n_taus)
                     .map(|_| E::read_radix_g1(&mut reader))
@@ -318,7 +375,7 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
         end_timer!(alpha_tau_g1_timer);
 
         let beta_tau_g1_timer = start_timer!(|| "Reading beta tau g1");
-        let beta_tau_powers_g1 = ProjectiveCurve::batch_normalization_into_affine(
+        let beta_tau_powers_g1 = batch_into_affine(
             &domain.fft(&batch_into_projective(
                 &(0..n_taus)
                     .map(|_| E::read_radix_g1(&mut reader))
@@ -349,6 +406,106 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
+pub struct PreparedAccumulator<E: PairingEngine> {
+    pub alpha: E::G1Affine,
+    pub beta: E::G1Affine,
+    pub tau_lagrange_g1: Vec<E::G1Projective>,
+    pub tau_lagrange_g2: Vec<E::G2Projective>,
+    pub alpha_lagrange_g1: Vec<E::G1Projective>,
+    pub beta_lagrange_g1: Vec<E::G1Projective>,
+    pub beta_g2: E::G2Affine,
+    pub h_query: Vec<E::G1Affine>,
+}
+
+impl<E: PairingEngine> PreparedAccumulator<E> {
+    pub fn check_pow_len(&self) -> (bool, usize) {
+        let len = self.tau_lagrange_g1.len();
+
+        (
+            len == self.tau_lagrange_g2.len()
+                && len == self.alpha_lagrange_g1.len()
+                && len == self.beta_lagrange_g1.len()
+                && (len - 1) == self.h_query.len(),
+            len,
+        )
+    }
+}
+
+impl<E: PairingEngine + PairingReader> PreparedAccumulator<E> {
+    pub fn from_radix_file<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+        let timer = start_timer!(|| "Reading from phase1radix file");
+        let path: &Path = path.as_ref();
+
+        let n_taus = 1usize
+            << path
+                .iter()
+                .last()
+                .and_then(|p| {
+                    p.to_str()
+                        .and_then(|e| e.split("phase1radix2m").last())
+                        .and_then(|e| e.parse::<usize>().ok())
+                })
+                .ok_or(crate::error::Error::Read(String::from(
+                    "Unable to read evaluation domain from radix file name",
+                )))?;
+
+        let mut reader = BufReader::new(File::open(path)?);
+
+        let aux_timer = start_timer!(|| "Reading auxilary");
+        let alpha = E::read_radix_g1(&mut reader)?;
+        let beta = E::read_radix_g1(&mut reader)?;
+        end_timer!(aux_timer);
+
+        let beta_g2_timer = start_timer!(|| "Reading beta g2");
+        let beta_g2 = E::read_radix_g2(&mut reader)?;
+        end_timer!(beta_g2_timer);
+
+        let tau_g1_timer = start_timer!(|| "Reading tau g1");
+        let tau_lagrange_g1 = (0..n_taus)
+            .map(|_| E::read_radix_g1(&mut reader))
+            .collect::<Result<Vec<_>, _>>()?;
+        end_timer!(tau_g1_timer);
+
+        let tau_g2_timer = start_timer!(|| "Reading tau g2");
+        let tau_lagrange_g2 = (0..n_taus)
+            .map(|_| E::read_radix_g2(&mut reader))
+            .collect::<Result<Vec<_>, _>>()?;
+        end_timer!(tau_g2_timer);
+
+        let alpha_tau_g1_timer = start_timer!(|| "Reading alpha tau g1");
+        let alpha_lagrange_g1 = (0..n_taus)
+            .map(|_| E::read_radix_g1(&mut reader))
+            .collect::<Result<Vec<_>, _>>()?;
+        end_timer!(alpha_tau_g1_timer);
+
+        let beta_tau_g1_timer = start_timer!(|| "Reading beta tau g1");
+        let beta_lagrange_g1 = (0..n_taus)
+            .map(|_| E::read_radix_g1(&mut reader))
+            .collect::<Result<Vec<_>, _>>()?;
+        end_timer!(beta_tau_g1_timer);
+
+        let h_query_timer = start_timer!(|| "Reading h query");
+        let h_query = (0..n_taus - 1)
+            .map(|_| E::read_radix_g1(&mut reader))
+            .collect::<Result<Vec<_>, _>>()?;
+        end_timer!(h_query_timer);
+
+        end_timer!(timer);
+
+        Ok(PreparedAccumulator {
+            alpha,
+            beta,
+            tau_lagrange_g1: batch_into_projective(&tau_lagrange_g1),
+            tau_lagrange_g2: batch_into_projective(&tau_lagrange_g2),
+            alpha_lagrange_g1: batch_into_projective(&alpha_lagrange_g1),
+            beta_lagrange_g1: batch_into_projective(&beta_lagrange_g1),
+            beta_g2,
+            h_query,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;
@@ -365,7 +522,7 @@ mod tests {
     use ark_snark::SNARK;
     use rand::rngs::OsRng;
 
-    use crate::transcript::Transcript;
+    use crate::{accumulator::PreparedAccumulator, transcript::Transcript};
 
     use super::Accumulator;
 
@@ -428,10 +585,10 @@ mod tests {
     #[test]
     fn from_radix_file_works() -> Result<(), Box<dyn Error>> {
         let rng = &mut OsRng;
-        let radix_path = "phase1radix2m8";
+        let radix_path = "phase1radix2m2";
 
-        let accum = Accumulator::<Bls12_381>::from_radix_file(radix_path)?;
-        let transcript = Transcript::new_from_accumulator(
+        let accum = PreparedAccumulator::<Bls12_381>::from_radix_file(radix_path)?;
+        let transcript = Transcript::new_from_prepared_accumulator(
             &accum,
             DummyCircuit {
                 a: ark_bls12_381::Fr::zero(),

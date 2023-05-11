@@ -20,6 +20,14 @@ pub fn batch_into_projective<A: AffineCurve>(points: &[A]) -> Vec<A::Projective>
 }
 
 #[inline]
+#[must_use]
+pub fn batch_into_affine<P: ProjectiveCurve>(points: &[P]) -> Vec<P::Affine> {
+    let mut points = points.to_vec();
+    P::batch_normalization(&mut points);
+    cfg_iter!(points).map(P::into_affine).collect()
+}
+
+#[inline]
 pub fn batch_mul_fixed_scalar<A: AffineCurve>(points: &mut [A], scalar: A::ScalarField) {
     cfg_iter_mut!(points).for_each(|point| *point = point.mul(scalar).into_affine())
 }

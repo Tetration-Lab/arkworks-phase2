@@ -4,20 +4,19 @@ use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
 use ark_ff::{Field, PrimeField, UniformRand, Zero};
 use ark_groth16::{ProvingKey, VerifyingKey};
 use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
-use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem, SynthesisError};
-use ark_std::{cfg_into_iter, cfg_iter};
+use ark_relations::r1cs::{
+    ConstraintSynthesizer, ConstraintSystem, ConstraintSystemRef, SynthesisError,
+};
+use ark_std::cfg_iter;
 use rand::Rng;
 
 use crate::{
-    accumulator::Accumulator,
+    accumulator::{Accumulator, PreparedAccumulator},
     error::Error,
     key::{FullKey, PartialKey},
     keypair::PublicKey,
     ratio::RatioProof,
-    utils::{
-        batch_into_projective, batch_mul_fixed_scalar, merge_ratio_affine_vec, same_ratio_swap,
-        seeded_rng,
-    },
+    utils::{batch_mul_fixed_scalar, merge_ratio_affine_vec, same_ratio_swap, seeded_rng},
 };
 
 #[cfg(feature = "parallel")]
@@ -31,41 +30,26 @@ pub struct Transcript<E: PairingEngine> {
 }
 
 impl<E: PairingEngine> Transcript<E> {
-    pub fn new_from_accumulator<C: ConstraintSynthesizer<E::Fr>>(
-        accum: &Accumulator<E>,
-        circuit: C,
+    fn new_from_prepared_accumulator_cs(
+        accum: &PreparedAccumulator<E>,
+        cs: ConstraintSystemRef<E::Fr>,
     ) -> Result<Self, Error> {
-        let cs = ConstraintSystem::new_ref();
-        circuit.generate_constraints(cs.clone())?;
-        cs.finalize();
-
         let num_constraints = cs.num_constraints();
         let num_instance_variables = cs.num_instance_variables();
         let total_constraints = num_constraints + num_instance_variables;
         let constraint_matrices = cs.to_matrices().ok_or(Error::MissingCSMatrices)?;
 
-        let domain = Radix2EvaluationDomain::new(total_constraints)
+        let (valid, len) = accum.check_pow_len();
+        valid.then_some(()).ok_or(Error::InvalidPOTSize)?;
+
+        let domain = Radix2EvaluationDomain::<E::Fr>::new(total_constraints)
             .ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
-        let degree = domain.size();
+        let size = domain.size();
 
-        let (valid, g1_len, g2_len) = accum.check_pow_len();
-        valid.then_some(()).ok_or(Error::InvalidPPOTPowers)?;
-        (g2_len >= total_constraints && g1_len >= (degree << 1))
+        (len == size)
             .then_some(())
-            .ok_or(Error::NotEnoughTauPowers(degree + 1))?;
+            .ok_or(Error::InvalidPOTDegree(ark_std::log2(size)))?;
 
-        let h_query = cfg_into_iter!(0..degree - 1)
-            .map(|i| {
-                let tmp = accum.tau_powers_g1[i + degree].into_projective();
-                let tmp2 = accum.tau_powers_g1[i].into_projective();
-                (tmp - tmp2).into_affine()
-            })
-            .collect::<Vec<_>>();
-
-        let tau_lagrange_g1 = domain.ifft(&batch_into_projective(&accum.tau_powers_g1));
-        let tau_lagrange_g2 = domain.ifft(&batch_into_projective(&accum.tau_powers_g2));
-        let alpha_lagrange_g1 = domain.ifft(&batch_into_projective(&accum.alpha_tau_powers_g1));
-        let beta_lagrange_g1 = domain.ifft(&batch_into_projective(&accum.beta_tau_powers_g1));
         let num_witnesses =
             constraint_matrices.num_witness_variables + constraint_matrices.num_instance_variables;
         let a_g1 = Arc::new(Mutex::new(vec![E::G1Projective::zero(); num_witnesses]));
@@ -74,17 +58,17 @@ impl<E: PairingEngine> Transcript<E> {
         let ext = Arc::new(Mutex::new(vec![E::G1Projective::zero(); num_witnesses]));
 
         a_g1.lock()?[0..num_instance_variables]
-            .clone_from_slice(&tau_lagrange_g1[num_constraints..total_constraints]);
+            .clone_from_slice(&accum.tau_lagrange_g1[num_constraints..total_constraints]);
         ext.lock()?[0..num_instance_variables]
-            .clone_from_slice(&beta_lagrange_g1[num_constraints..total_constraints]);
+            .clone_from_slice(&accum.beta_lagrange_g1[num_constraints..total_constraints]);
 
         cfg_iter!(constraint_matrices.a)
-            .zip(constraint_matrices.b)
-            .zip(constraint_matrices.c)
-            .zip(tau_lagrange_g1)
-            .zip(tau_lagrange_g2)
-            .zip(alpha_lagrange_g1)
-            .zip(beta_lagrange_g1)
+            .zip(cfg_iter!(constraint_matrices.b))
+            .zip(cfg_iter!(constraint_matrices.c))
+            .zip(cfg_iter!(accum.tau_lagrange_g1))
+            .zip(cfg_iter!(accum.tau_lagrange_g2))
+            .zip(cfg_iter!(accum.alpha_lagrange_g1))
+            .zip(cfg_iter!(accum.beta_lagrange_g1))
             .for_each(
                 |((((((a_poly, b_poly), c_poly), tau_g1), tau_g2), alpha_tau), beta_tau)| {
                     cfg_iter!(a_poly).for_each(|(coeff, index)| {
@@ -110,20 +94,26 @@ impl<E: PairingEngine> Transcript<E> {
         let public_cross_terms = Vec::from(&ext[..constraint_matrices.num_instance_variables]);
         let private_cross_terms = Vec::from(&ext[constraint_matrices.num_instance_variables..]);
 
+        for l in &private_cross_terms {
+            if l.is_zero() {
+                return Err(SynthesisError::UnconstrainedVariable)?;
+            }
+        }
+
         let key = ProvingKey::<E> {
             vk: VerifyingKey {
-                alpha_g1: accum.alpha_tau_powers_g1[0],
+                alpha_g1: accum.alpha,
                 beta_g2: accum.beta_g2,
                 gamma_g2: E::G2Affine::prime_subgroup_generator(),
                 delta_g2: E::G2Affine::prime_subgroup_generator(),
                 gamma_abc_g1: public_cross_terms,
             },
-            beta_g1: accum.beta_tau_powers_g1[0],
+            beta_g1: accum.beta,
             delta_g1: E::G1Affine::prime_subgroup_generator(),
             a_query,
             b_g1_query,
             b_g2_query,
-            h_query: h_query.to_vec(),
+            h_query: accum.h_query.to_vec(),
             l_query: private_cross_terms,
         };
 
@@ -132,6 +122,56 @@ impl<E: PairingEngine> Transcript<E> {
             key: FullKey { key },
             contributions: vec![],
         })
+    }
+    pub fn new_from_prepared_accumulator<C: ConstraintSynthesizer<E::Fr>>(
+        accum: &PreparedAccumulator<E>,
+        circuit: C,
+    ) -> Result<Self, Error> {
+        let cs = ConstraintSystem::new_ref();
+        circuit.generate_constraints(cs.clone())?;
+        cs.finalize();
+
+        let num_constraints = cs.num_constraints();
+        let num_instance_variables = cs.num_instance_variables();
+        let total_constraints = num_constraints + num_instance_variables;
+
+        let (valid, len) = accum.check_pow_len();
+        valid.then_some(()).ok_or(Error::InvalidPOTSize)?;
+
+        let needed_degree = ark_std::log2(total_constraints);
+        let degree = ark_std::log2(len);
+
+        (degree == needed_degree)
+            .then_some(())
+            .ok_or(Error::InvalidPOTDegree(needed_degree))?;
+
+        Self::new_from_prepared_accumulator_cs(accum, cs)
+    }
+
+    pub fn new_from_accumulator<C: ConstraintSynthesizer<E::Fr>>(
+        accum: &Accumulator<E>,
+        circuit: C,
+    ) -> Result<Self, Error> {
+        let cs = ConstraintSystem::new_ref();
+        circuit.generate_constraints(cs.clone())?;
+        cs.finalize();
+
+        let num_constraints = cs.num_constraints();
+        let num_instance_variables = cs.num_instance_variables();
+        let total_constraints = num_constraints + num_instance_variables;
+
+        let (valid, g1_len, g2_len) = accum.check_pow_len();
+        valid.then_some(()).ok_or(Error::InvalidPOTSize)?;
+
+        let domain = Radix2EvaluationDomain::<E::Fr>::new(total_constraints)
+            .ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
+        let size = domain.size();
+
+        (g2_len >= total_constraints && g1_len >= size)
+            .then_some(())
+            .ok_or(Error::NotEnoughPOTDegree(ark_std::log2(total_constraints)))?;
+
+        Self::new_from_prepared_accumulator_cs(&accum.prepare_with_size(size)?, cs)
     }
 
     pub fn contribute_seed(&mut self, seed: &[u8]) -> Result<(), Error> {
