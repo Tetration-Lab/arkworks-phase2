@@ -7,7 +7,7 @@ use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
 use ark_relations::r1cs::{
     ConstraintSynthesizer, ConstraintSystem, ConstraintSystemRef, SynthesisError,
 };
-use ark_std::cfg_iter;
+use ark_std::{cfg_iter, end_timer, start_timer};
 use rand::Rng;
 
 use crate::{
@@ -34,6 +34,8 @@ impl<E: PairingEngine> Transcript<E> {
         accum: &PreparedAccumulator<E>,
         cs: ConstraintSystemRef<E::Fr>,
     ) -> Result<Self, Error> {
+        let timer = start_timer!(|| "Generating transcript from prepared accumulator");
+
         let num_constraints = cs.num_constraints();
         let num_instance_variables = cs.num_instance_variables();
         let total_constraints = num_constraints + num_instance_variables;
@@ -57,11 +59,15 @@ impl<E: PairingEngine> Transcript<E> {
         let b_g2 = Arc::new(Mutex::new(vec![E::G2Projective::zero(); num_witnesses]));
         let ext = Arc::new(Mutex::new(vec![E::G1Projective::zero(); num_witnesses]));
 
+        let add_dummy_constraints_timer = start_timer!(|| "Adding dummy constraints");
         a_g1.lock()?[0..num_instance_variables]
             .clone_from_slice(&accum.tau_lagrange_g1[num_constraints..total_constraints]);
         ext.lock()?[0..num_instance_variables]
             .clone_from_slice(&accum.beta_lagrange_g1[num_constraints..total_constraints]);
+        end_timer!(add_dummy_constraints_timer);
 
+        let specialize_constraints_timer =
+            start_timer!(|| "Specializing constraints into phase 2 key");
         cfg_iter!(constraint_matrices.a)
             .zip(cfg_iter!(constraint_matrices.b))
             .zip(cfg_iter!(constraint_matrices.c))
@@ -85,6 +91,7 @@ impl<E: PairingEngine> Transcript<E> {
                     });
                 },
             );
+        end_timer!(specialize_constraints_timer);
 
         let a_query = ProjectiveCurve::batch_normalization_into_affine(&a_g1.lock()?);
         let b_g1_query = ProjectiveCurve::batch_normalization_into_affine(&b_g1.lock()?);
@@ -116,6 +123,8 @@ impl<E: PairingEngine> Transcript<E> {
             h_query: accum.h_query.to_vec(),
             l_query: private_cross_terms,
         };
+
+        end_timer!(timer);
 
         Ok(Self {
             initial_key: (&key).into(),

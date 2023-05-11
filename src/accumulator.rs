@@ -33,6 +33,8 @@ pub struct Accumulator<E: PairingEngine> {
 
 impl<E: PairingEngine> Accumulator<E> {
     pub fn prepare_with_size(&self, size: usize) -> Result<PreparedAccumulator<E>, Error> {
+        let timer = start_timer!(|| "Preparing accumulator");
+
         let (_, g1_len, g2_len) = self.check_pow_len();
 
         let domain =
@@ -43,16 +45,31 @@ impl<E: PairingEngine> Accumulator<E> {
             .then_some(())
             .ok_or(Error::NotEnoughPOTDegree(ark_std::log2(size)))?;
 
+        let h_query_timer = start_timer!(|| "Computing h_query");
         let h_query = cfg_into_iter!(0..size - 1)
             .map(|i| (self.tau_powers_g1[i + size] + -self.tau_powers_g1[i]))
             .collect::<Vec<_>>();
+        end_timer!(h_query_timer);
 
+        let tau_lagrange_g1_timer = start_timer!(|| "Computing inverse fft to tau_lagrange_g1");
         let tau_lagrange_g1 = domain.ifft(&batch_into_projective(&self.tau_powers_g1[..size]));
+        end_timer!(tau_lagrange_g1_timer);
+
+        let tau_lagrange_g2_timer = start_timer!(|| "Computing inverse fft to tau_lagrange_g2");
         let tau_lagrange_g2 = domain.ifft(&batch_into_projective(&self.tau_powers_g2[..size]));
+        end_timer!(tau_lagrange_g2_timer);
+
+        let alpha_lagrange_g1_timer = start_timer!(|| "Computing inverse fft to alpha_lagrange_g1");
         let alpha_lagrange_g1 =
             domain.ifft(&batch_into_projective(&self.alpha_tau_powers_g1[..size]));
+        end_timer!(alpha_lagrange_g1_timer);
+
+        let beta_lagrange_g1_timer = start_timer!(|| "Computing inverse fft to beta_lagrange_g1");
         let beta_lagrange_g1 =
             domain.ifft(&batch_into_projective(&self.beta_tau_powers_g1[..size]));
+        end_timer!(beta_lagrange_g1_timer);
+
+        end_timer!(timer);
 
         Ok(PreparedAccumulator {
             alpha: self.alpha_tau_powers_g1[0],
