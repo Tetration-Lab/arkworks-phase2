@@ -93,6 +93,13 @@ impl<T: BnParameters> PairingReader for Bn<T> {
 
     fn read_radix_g2<R: Read>(reader: &mut R) -> Result<Self::G2Affine, Error> {
         let len = <Self::Fq as PrimeField>::BigInt::NUM_LIMBS * 8;
+        let x1 = {
+            let mut b = vec![0; len];
+            reader.read_exact(&mut b)?;
+            b.reverse();
+            Self::Fq::from_repr(<Self::Fq as PrimeField>::BigInt::read(&b[..])?)
+                .ok_or(Error::Read(String::from("Unable to read Fq x1")))
+        }?;
         let x0 = {
             let mut b = vec![0; len];
             reader.read_exact(&mut b)?;
@@ -101,27 +108,20 @@ impl<T: BnParameters> PairingReader for Bn<T> {
             Self::Fq::from_repr(<Self::Fq as PrimeField>::BigInt::read(&b[..])?)
                 .ok_or(Error::Read(String::from("Unable to read Fq x0")))
         }?;
-        let x1 = {
-            let mut b = vec![0; len];
-            reader.read_exact(&mut b)?;
-            b.reverse();
-            Self::Fq::from_repr(<Self::Fq as PrimeField>::BigInt::read(&b[..])?)
-                .ok_or(Error::Read(String::from("Unable to read Fq x1")))
-        }?;
         let x = QuadExtField::new(x0, x1);
-        let y0 = {
-            let mut b = vec![0; len];
-            reader.read_exact(&mut b)?;
-            b.reverse();
-            Self::Fq::from_repr(<Self::Fq as PrimeField>::BigInt::read(&b[..])?)
-                .ok_or(Error::Read(String::from("Unable to read Fq y0")))
-        }?;
         let y1 = {
             let mut b = vec![0; len];
             reader.read_exact(&mut b)?;
             b.reverse();
             Self::Fq::from_repr(<Self::Fq as PrimeField>::BigInt::read(&b[..])?)
                 .ok_or(Error::Read(String::from("Unable to read Fq y1")))
+        }?;
+        let y0 = {
+            let mut b = vec![0; len];
+            reader.read_exact(&mut b)?;
+            b.reverse();
+            Self::Fq::from_repr(<Self::Fq as PrimeField>::BigInt::read(&b[..])?)
+                .ok_or(Error::Read(String::from("Unable to read Fq y0")))
         }?;
         let y = QuadExtField::new(y0, y1);
         let g2 = Self::G2Affine::new(x, y, false);
