@@ -253,7 +253,7 @@ impl<E: PairingEngine + PairingReader> Accumulator<E> {
         add_to_trace!(|| "Ceremony Length: ", || n_contribution.to_string());
 
         let n_tau_g2s = 1 << power;
-        let n_tau_g1s = n_tau_g2s - 1;
+        let n_tau_g1s = (n_tau_g2s << 1) - 1;
 
         let element_timer = start_timer!(|| "Reading pot elements");
 
@@ -637,6 +637,40 @@ mod tests {
             &[ark_bls12_381::Fr::from(4)],
             &proof,
         )?;
+        assert!(!valid, "Proof must be not valid");
+
+        Ok(())
+    }
+
+    #[test]
+    fn from_radix_bn254_file_works() -> Result<(), Box<dyn Error>> {
+        let rng = &mut OsRng;
+        let radix_path = "bn254phase1radix2m2";
+
+        let accum = PreparedAccumulator::<Bn254>::from_radix_file(radix_path)?;
+        let transcript = Transcript::new_from_prepared_accumulator(
+            &accum,
+            DummyCircuit {
+                a: ark_bn254::Fr::zero(),
+                b: ark_bn254::Fr::zero(),
+                c: ark_bn254::Fr::zero(),
+            },
+        )?;
+
+        let proof = Groth16::prove(
+            &transcript.key.key,
+            DummyCircuit {
+                a: ark_bn254::Fr::from(1),
+                b: ark_bn254::Fr::from(1),
+                c: ark_bn254::Fr::from(2),
+            },
+            rng,
+        )?;
+
+        let valid = Groth16::verify(&transcript.key.key.vk, &[ark_bn254::Fr::from(2)], &proof)?;
+        assert!(valid, "Proof must be valid");
+
+        let valid = Groth16::verify(&transcript.key.key.vk, &[ark_bn254::Fr::from(4)], &proof)?;
         assert!(!valid, "Proof must be not valid");
 
         Ok(())
