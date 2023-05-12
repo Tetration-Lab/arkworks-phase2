@@ -41,7 +41,7 @@ impl<E: PairingEngine> Accumulator<E> {
             Radix2EvaluationDomain::new(size).ok_or(SynthesisError::PolynomialDegreeTooLarge)?;
         let size = domain.size();
 
-        (g2_len >= size && g1_len > (size << 1) - 1)
+        (g2_len >= size && g1_len >= (size << 1) - 1)
             .then_some(())
             .ok_or(Error::NotEnoughPOTDegree(ark_std::log2(size)))?;
 
