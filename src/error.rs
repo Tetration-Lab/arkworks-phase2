@@ -5,6 +5,7 @@ use thiserror::Error;
 
 #[derive(Error, Clone, Debug, Eq, PartialEq)]
 pub enum Error {
+    #[cfg(feature = "parallel")]
     #[error("Constraint System: {0}")]
     ConstraintSystem(#[from] SynthesisError),
 
@@ -81,5 +82,19 @@ impl From<std::io::Error> for Error {
 impl From<ark_serialize::SerializationError> for Error {
     fn from(value: ark_serialize::SerializationError) -> Self {
         Self::Serialization(value.to_string())
+    }
+}
+
+#[cfg(not(feature = "parallel"))]
+impl From<SynthesisError> for Error {
+    fn from(value: SynthesisError) -> Self {
+        Self::Custom(format!("Constraint System: {}", value))
+    }
+}
+
+#[cfg(not(feature = "parallel"))]
+impl From<ark_std::io::Error> for Error {
+    fn from(value: ark_std::io::Error) -> Self {
+        Self::Custom(value.to_string())
     }
 }
