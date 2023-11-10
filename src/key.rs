@@ -1,10 +1,17 @@
 use std::borrow::Borrow;
 
-use ark_ec::PairingEngine;
+use ark_ec::{AffineCurve, PairingEngine, ProjectiveCurve};
+use ark_ff::Field;
 use ark_groth16::ProvingKey;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Read, SerializationError, Write};
+use ark_std::{end_timer, start_timer, UniformRand};
+use rand::Rng;
 
-use crate::{error::Error, utils::serialize};
+use crate::{
+    error::Error,
+    ratio::RatioProof,
+    utils::{batch_mul_fixed_scalar, seeded_rng, serialize},
+};
 
 #[derive(CanonicalSerialize, CanonicalDeserialize, Debug, Clone, PartialEq)]
 pub struct FullKey<E: PairingEngine> {
@@ -96,6 +103,34 @@ impl<E: PairingEngine> PartialKey<E> {
             .into_iter()
             .chain(serialize(&self.delta_g2)?)
             .collect())
+    }
+
+    pub fn contribute_seed(&mut self, seed: &[u8]) -> Result<RatioProof<E>, Error> {
+        self.contribute_rng(&mut seeded_rng(seed))
+    }
+
+    pub fn contribute_rng<R: Rng>(&mut self, rng: &mut R) -> Result<RatioProof<E>, Error> {
+        let timer = start_timer!(|| "Contributing to partial key");
+
+        let delta = E::Fr::rand(rng);
+        let delta_inverse = delta.inverse().expect("delta is not invertible");
+
+        let proof = RatioProof::<E>::generate(delta, &self.challenge()?)?;
+
+        let l_timer = start_timer!(|| "Updating l_query");
+        batch_mul_fixed_scalar(&mut self.l_query, delta_inverse);
+        end_timer!(l_timer);
+
+        let h_timer = start_timer!(|| "Updating h_query");
+        batch_mul_fixed_scalar(&mut self.h_query, delta_inverse);
+        end_timer!(h_timer);
+
+        self.delta_g1 = self.delta_g1.mul(delta).into_affine();
+        self.delta_g2 = self.delta_g2.mul(delta).into_affine();
+
+        end_timer!(timer);
+
+        Ok(proof)
     }
 }
 
