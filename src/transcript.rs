@@ -136,6 +136,7 @@ impl<E: PairingEngine> Transcript<E> {
             contributions: vec![],
         })
     }
+
     pub fn new_from_prepared_accumulator<C: ConstraintSynthesizer<E::Fr>>(
         accum: &PreparedAccumulator<E>,
         circuit: C,
@@ -192,19 +193,29 @@ impl<E: PairingEngine> Transcript<E> {
     }
 
     pub fn contribute_rng<R: Rng>(&mut self, rng: &mut R) -> Result<(), Error> {
+        let timer = start_timer!(|| "Contributing to transcript");
+
         let delta = E::Fr::rand(rng);
         let delta_inverse = delta.inverse().expect("delta is not invertible");
 
         let proof = RatioProof::<E>::generate(delta, &self.key.challenge()?)?;
 
+        let l_timer = start_timer!(|| "Updating l_query");
         batch_mul_fixed_scalar(&mut self.key.key.l_query, delta_inverse);
+        end_timer!(l_timer);
+
+        let h_timer = start_timer!(|| "Updating h_query");
         batch_mul_fixed_scalar(&mut self.key.key.h_query, delta_inverse);
+        end_timer!(h_timer);
+
         self.key.key.delta_g1 = self.key.key.delta_g1.mul(delta).into_affine();
         self.key.key.vk.delta_g2 = self.key.key.vk.delta_g2.mul(delta).into_affine();
         self.contributions.push(PublicKey {
             delta_g2: self.key.key.vk.delta_g2,
             proof,
         });
+
+        end_timer!(timer);
 
         Ok(())
     }

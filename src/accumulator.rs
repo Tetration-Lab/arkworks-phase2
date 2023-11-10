@@ -107,6 +107,8 @@ impl<E: PairingEngine> Accumulator<E> {
     }
 
     pub fn contribute<R: Rng>(&mut self, rng: &mut R) {
+        let timer = start_timer!(|| "Contributing to accumulator");
+
         let tau = E::Fr::rand(rng);
         let alpha = E::Fr::rand(rng);
         let beta = E::Fr::rand(rng);
@@ -137,6 +139,8 @@ impl<E: PairingEngine> Accumulator<E> {
             .zip(remaining_tau_powers)
             .for_each(|(tau_g1, tau_power)| *tau_g1 = tau_g1.mul(tau_power).into());
         self.beta_g2 = self.beta_g2.mul(beta).into();
+
+        end_timer!(timer);
     }
 
     pub fn empty(g1_powers: usize, g2_powers: usize) -> Self {
