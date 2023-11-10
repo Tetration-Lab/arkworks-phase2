@@ -5,7 +5,7 @@ use thiserror::Error;
 
 #[derive(Error, Clone, Debug, Eq, PartialEq)]
 pub enum Error {
-    #[cfg(feature = "parallel")]
+    #[cfg(not(feature = "no-std"))]
     #[error("Constraint System: {0}")]
     ConstraintSystem(#[from] SynthesisError),
 
@@ -73,6 +73,7 @@ impl<E> From<PoisonError<E>> for Error {
     }
 }
 
+#[cfg(not(feature = "no-std"))]
 impl From<std::io::Error> for Error {
     fn from(value: std::io::Error) -> Self {
         Self::IO(value.to_string())
@@ -85,14 +86,14 @@ impl From<ark_serialize::SerializationError> for Error {
     }
 }
 
-#[cfg(not(feature = "parallel"))]
+#[cfg(feature = "no-std")]
 impl From<SynthesisError> for Error {
     fn from(value: SynthesisError) -> Self {
         Self::Custom(format!("Constraint System: {}", value))
     }
 }
 
-#[cfg(not(feature = "parallel"))]
+#[cfg(feature = "no-std")]
 impl From<ark_std::io::Error> for Error {
     fn from(value: ark_std::io::Error) -> Self {
         Self::Custom(value.to_string())

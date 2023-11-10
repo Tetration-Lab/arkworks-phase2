@@ -31,5 +31,7 @@ ark-snark = { version = "^0.3.0", default-features = false }
 ark-groth16 = { version = "^0.3.0", default-features = false, features = ["parallel"] }
 
 [features]
-default = []
+default = ["std"]
+no-std = []
 parallel = ["rayon", "ark-ff/parallel", "ark-ec/parallel", "ark-std/parallel", "ark-r1cs-std/parallel", "ark-poly/parallel", "ark-groth16/parallel"]
+std = ["ark-std/std", "ark-ff/std", "ark-ec/std", "ark-r1cs-std/std", "ark-poly/std", "ark-relations/std", "ark-groth16/std", "ark-serialize/std"]
